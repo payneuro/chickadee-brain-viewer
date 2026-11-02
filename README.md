@@ -6,24 +6,22 @@ food-caching bird*, https://doi.org/10.1002/cne.25533) on chickadee brain
 templates, and for building a template from an anatomy bird's coronal sections.
 
 Coordinates are in mm relative to lambda (the point where the two hemispheres
-and the cerebellum meet in the MC029 template): anterior (`xx`, AP),
-lateral (`yy`, ML), dorsal (`zz`, DV).
+and the cerebellum meet in the MC029 template): anterior (`xx`, anterior/posterior, anterior positive),
+lateral (`yy`, medial/lateral, animal's right positive), dorsal (`zz`, dorsal/ventral, dorsal positive).
 
 ## Layout
 
-`brainViewer.m` (the viewer) sits at the top; everything else is in `src\`
-(the build and plotting scripts too). `brainViewer` adds `src\` to the path; to
-run a script directly, `addpath src` first. `data\` and `results\` are not in
-git (see Data).
+```
+chickadee-brain-viewer/
+├── brainViewer.m   main viewer
+├── src/            source code
+├── data/           data; downloaded from Dropbox if missing (not in git)
+└── results/        figures (not in git)
+```
 
 ## Quick start
 
-| Run | What it does |
-|---|---|
-| `brainViewer` | Interactive viewer (below). Needs the data (see Data); builds a cache in `tempdir` on first run or when a data file changes. |
-| `makeAnatomyTemplates` | Rebuilds `data\MC022_75.mat` from the MC022 sections on `Z:` (about 20 s). |
-| `makeSectionOutlines` | Re-detects tissue outlines and joins detached pieces (`data\MC022_outlines.mat`; ~3 min, run before `makeAnatomyTemplates` if outlines change). |
-| `fitReferencePlacement` | Refits how MC022's sections sit on MC029 (vibratome scale, AP shift, tilt; ~80 s; figure to `results\`). |
+ `brainViewer`  Interactive viewer (below). Needs the data (see Data; downloads automatically); builds a cache in `tempdir` on first run or when a data file changes. 
 
 ## Viewer (`brainViewer`)
 
@@ -37,25 +35,13 @@ git (see Data).
   one step of its plane.
 - The table picks labelled regions (rows) and injection sites (columns); the
   bird list starts with MC022 only.
-- The square button on each slice's (and tab 2's image's) axes toolbar draws a
+- The square button on each slice's axes toolbar draws a
   box labelled with its ΔX and ΔY in mm.
 
 **Tab 2, MC022 sections.** Each MC022 coronal section in the template frame,
-with its outline and MC022's labelled cells. Under the section slider: the
-section's AP (with the vibratome scale and AP shift), image names and
-trueOrder. Channel buttons switch between the three tracer channels, each
-labelled with its injection site (647 HP AP 5.0, 555 HP AP 3.0, 488 HP AP 1.0),
-and DAPI; coloring by injection site uses each tracer's color (red, orange,
-green). The histogram and min/max slider set the display range. The table,
-Display, Cells drawn and Color by controls are shared with tab 1, and the
-section follows tab 1's AP; the scroll wheel steps sections.
+with its outline and MC022's labelled cells.
 
-**Cells.** Other birds' cells come from the Dryad data (`loadDryadCells`),
-with DV moved from Marissa's MC029_orig onto MC029_fixed (`loadDryadCells`) and
-mapped into the MC022_75 frame by the transform fitted on MC022
-(`dryadToTemplate`). MC022's own cells come from its section images instead, for
-the regions its label files cover (DL/CDL, HD, NIL_M, NFL, NIL_L). Other birds
-are still visibly misaligned.
+**Cells.** Other birds' cells come from the Dryad data (`loadDryadCells`).The Dryad data is currently misaligned. MC022's own cells come from its section images instead, for the regions its label files cover (DL/CDL, HD, NIL_M, NFL, NIL_L). Subcortical data currently missing for HC022. 
 
 ## How the MC022 template is built
 
@@ -73,29 +59,11 @@ are still visibly misaligned.
 3. `fitDryadTransform`: rotation + DV offset taking Dryad DV onto MC022's
    image-mapped cells (used for the other birds).
 
-Fitted placement (`fitReferencePlacement`, Dice 0.946 against MC029, set in
-`opts` at the top of `makeAnatomyTemplates`): vibratome scale 1.062 (applied to
+Fitted placement (`fitReferencePlacement`): vibratome scale 1.062 (applied to
 MC022's AP spacing and MC029's ML, since MC029 was cut sagittally), AP shift
 0.5 mm, tilt 19.9° (MC029 effectively at 55.1°), DV offset 0. AP shift and tilt
 trade off along a flat ridge, so AP is the least certain of these.
 
-## Files (in `src\`, except `brainViewer`)
-
-Viewer and plotting: `brainViewer`, `plotBrainRegion3d`,
-`loadBrain3d`, `cellDensity3d`.
-
-Template building: `makeAnatomyTemplates`, `makeSectionOutlines`,
-`detectSectionOutline`, `findJoin` (how to move a section's detached pieces
-together), `joinPieces` (moves an image's pieces), `fitReferencePlacement`.
-
-Coordinates: `rotateNoseDown` (rotation about lambda), `pixelsToTemplate`
-(section pixels ↔ template mm), `fuseHemispheres`, `dryadToTemplate`,
-`loadDryadCells`.
-
-Section images: `readSectionImage` (1/8-scale cache in `MC022_ds8\` of the
-data folder), `renderSection`, `pixelsToTemplateImage`.
-
-Data location: `dataDir`.
 
 ## Data (not in git)
 
@@ -135,4 +103,3 @@ about 1 GB each, in four channels: file suffix 395 DAPI, 475 (488 tracer), 555,
 - Slice_01 needs a hand-drawn midline (`draw_corrections = true`).
 - Other birds need their own alignment.
 
-Hannah Payne, 2021–2026
