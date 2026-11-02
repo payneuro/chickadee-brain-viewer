@@ -1,0 +1,6 @@
+# Data and results are shared by Dropbox, not git
+data/
+results/
+# MATLAB autosaves and editor files
+*.asv
+*.m~

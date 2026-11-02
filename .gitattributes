@@ -1,2 +1,11 @@
-# Auto detect text files and perform LF normalization
+# Text files are stored with LF in the repository and checked out with each
+# contributor's own line endings, so line endings never show up as changes
 * text=auto
+
+# Binary files: never converted or diffed as text
+*.mat binary
+*.fig binary
+*.mlx binary
+*.png binary
+*.tif binary
+*.svg binary
