@@ -2,13 +2,13 @@ function cells = loadDryadCells(data_dir, P)
 % cells = loadDryadCells(data_dir, [P]) loads every labeled cell from the Dryad
 % data of Applegate et al. 2023 (dryad_applegate2023\anatomy.mat: one table per
 % bird), as one table with a bird column: bird, ROI, Long, Transverse,
-% Hemisphere, AP, ML, DV, wavelength.
-% With P, DV is moved from Marissa's MC029_orig onto MC029_fixed: Dryad DV was set
-% from MC029_orig's dorsal surface, so each cell gets z_fixed - z_orig (the
-% dorsal surface heights, surfaceHeight), read where the cell lands on MC029 under the
-% fitted placement in P (a template's P from makeAnatomyTemplates: section_step,
-% ap_mid, ap_shift, default_angle, ref_angle). Cells where either surface is
-% missing keep their Dryad DV. AP and ML are unchanged. Without P: Dryad's DV.
+% Hemisphere, AP, ML, DV, wavelength. Without P: Dryad's DV.
+% With P (a template's P from makeAnatomyTemplates), DV becomes depth below the
+% top of the cell's own section, undoing how the Dryad sections were placed: on
+% MC029_orig rotated P.dryad_tilt deg nose down, in its coronal plane at Dryad
+% AP + P.dryad_ap_offset, with the section's top at that slice's dorsal-most
+% point + P.dryad_dv_offset. dryadToTemplate then places the cells in the
+% template. AP and ML are unchanged.
 %
 % Hannah Payne, 2026
 
@@ -21,41 +21,23 @@ end
 cells = vertcat(per_bird{:});
 if nargin < 2, return; end
 
-D_orig = loadBrain3d(fullfile(data_dir, 'MC029_orig.mat'));
-D_fixed = loadBrain3d(fullfile(data_dir, 'MC029_fixed.mat'));
-scale = P.section_step / 0.1;
-ap_frame = dryadToTemplate(cells.AP, cells.ML, cells.DV, ...   % AP only: scale and shift, no rotation
-    struct('ap_mid', P.ap_mid, 'ap_scale', scale, 'ap_shift', P.ap_shift, 'theta', 0, 'c', 0));
-ap_ref = rotateNoseDown(ap_frame, cells.DV, -(P.default_angle - P.ref_angle));   % into MC029's own frame
-ml_ref = cells.ML / scale;   % MC029's ML is stretched by scale
-dv = cells.DV + surfaceHeight(D_fixed, ap_ref, ml_ref) - surfaceHeight(D_orig, ap_ref, ml_ref);
-ok = ~isnan(dv);
-cells.DV(ok) = dv(ok);
+D = loadBrain3d(fullfile(data_dir, 'MC029_orig.mat'));
+[ap_u, ~, j] = unique(cells.AP);   % sections: one top each
+top = arrayfun(@(a) sliceTop(D, a + P.dryad_ap_offset, P.dryad_tilt), ap_u);
+cells.DV = cells.DV - (top(j) + P.dryad_dv_offset);
 end
 
 
-function z = surfaceHeight(D, ap, ml)
-% Dorsal-most Ibrain voxel at the nearest grid column to each (ap,ml), NaN if
-% none
-inside = D.Ibrain > 0.5;
-[~, top] = max(flip(inside, 3), [], 3);         % first inside voxel from the top
-z_map = D.zz(numel(D.zz) + 1 - top);
-z_map(~any(inside, 3)) = NaN;
-ix = nearestIndex(D.xx, ap);
-iy = nearestIndex(D.yy, ml);
-z = reshape(z_map(sub2ind(size(z_map), iy, ix)), size(ap));
-end
-
-
-function ind = nearestIndex(grid, vals)
-% Same as [~,ind] = min(abs(grid - v)) per value (ties go to the lower index),
-% evaluated once per unique value in chunks
-[u, ~, j] = unique(vals(:));
-ind_u = zeros(size(u));
-chunk = 1e4;
-for k = 1:chunk:numel(u)
-    kk = k:min(k+chunk-1, numel(u));
-    [~, ind_u(kk)] = min(abs(grid(:)' - u(kk)), [], 2);
-end
-ind = ind_u(j);
+function z = sliceTop(D, ap, tilt)
+% Dorsal-most point of D's brain in the coronal plane at ap of D rotated tilt deg
+% nose down (nearest voxel), NaN if the plane misses it
+[Z, Y] = ndgrid(D.zz, D.yy);
+[X, Zr] = rotateNoseDown(ap*ones(size(Z)), Z, -tilt);   % back into D's own frame
+dI = D.xx(2) - D.xx(1);
+ix = round((X - D.xx(1))/dI) + 1; iy = round((Y - D.yy(1))/dI) + 1; iz = round((Zr - D.zz(1))/dI) + 1;
+ok = ix >= 1 & ix <= numel(D.xx) & iy >= 1 & iy <= numel(D.yy) & iz >= 1 & iz <= numel(D.zz);
+inside = false(size(Z));
+inside(ok) = D.Ibrain(sub2ind(size(D.Ibrain), iy(ok), ix(ok), iz(ok))) > 0.5;
+z = max(Z(inside));
+if isempty(z), z = NaN; end
 end

@@ -67,9 +67,14 @@ origin_dim = [tf.ap_mid*(1 - tf.ap_scale) + tf.ap_shift, 0, 0];   % frame AP of 
 
 % Injection sites, Table 1 of Applegate et al. 2023. For DL, Long is the
 % topographically matched Hp location; AP is the actual injection coordinate.
+% AP and ML (mm) from lambda, depth (mm) below the brain surface, at head_angle.
 sites = table(["Hp";"Hp";"Hp";"Hp";"DL";"DL";"DL"], [-1;1;3;5;1;3;5], ...
-    (1:7)', [-1;1;3;5;2;3.5;5.5], 'VariableNames', {'Transverse','Long','Loc','AP'});
+    (1:7)', [-1;1;3;5;2;3.5;5.5], [1.9;0.4;0.4;0.4;2.3;1.7;0.7], [0.4;0.4;0.4;1.0;0.4;0.4;0.3], [90;75;75;75;75;75;75], ...
+    'VariableNames', {'Transverse','Long','Loc','AP','ML','depth','head_angle'});
 site_labels = compose('%s AP %.1f', upper(sites.Transverse), sites.AP);   % HP, DL (data say Hp)
+[site_ap, site_dv] = sitePositions(sites, tf, tmpl(1).F.Ibrain, frame_angle, Dd.zz);   % MC022_75 frame, injected side (+ML)
+site_ap_d = site_ap; site_dv_d = site_dv;   % display frame (updateCellDisplay)
+site_window = 0.5;   % mm: a slice or section shows the sites within this distance of its plane
 [~, cell_site] = ismember(string(cells.Transverse) + "_" + cells.Long, ...
     sites.Transverse + "_" + sites.Long);
 
@@ -173,6 +178,7 @@ h_sec_img = imagesc(ax_sec, sec_ML(1, :), sec_DV(:, 1), zeros(size(sec_ML)), [0 
 colormap(ax_sec, gray); ax_sec.YDir = 'normal';
 xline(ax_sec, 0, ':', 'Color', [1 1 0.6]);
 h_sec_out = plot(ax_sec, NaN, NaN, '-', 'Color', color_outline, 'LineWidth', 1);
+h_sec_sites = siteMarkers(ax_sec, sec_site_colors);   % injection sites near the section (drawSection)
 h_sec_groups = gobjects(0);    % MC022's cells or density contours per group (drawSection)
 h_sec_keys = gobjects(0);      % their legend stand-ins
 groups2 = struct('idx', {}, 'show', {}, 'color', {}, 'name', {}, 'label', {}, 'I', {});   % MC022-only groups (updateGroups)
@@ -216,17 +222,21 @@ chk_minor = uicheckbox(chk_grid_lay, 'Text', '0.2 mm minor grid', 'Value', false
 shared_row = [8 5];   % its row in ctrl (tab 1) and ctrl2 (tab 2)
 % Columns: label, switch's left option (right-aligned, so the switches line up),
 % switch, right option
-shared = uigridlayout(ctrl, [5 4], 'Padding', 0, 'RowSpacing', 6, 'ColumnSpacing', 6, ...
-    'ColumnWidth', {120, 'fit', 45, '1x'}, 'RowHeight', {26, 26, 26, 26, '1x'});
+shared = uigridlayout(ctrl, [6 4], 'Padding', 0, 'RowSpacing', 6, 'ColumnSpacing', 6, ...
+    'ColumnWidth', {120, 'fit', 45, '1x'}, 'RowHeight', {26, 26, 26, 26, 26, '1x'});
 shared.Layout.Row = shared_row(1); shared.Layout.Column = [1 2];
 sw_display  = switchRow(shared, 1, 'Display:', {'Cells', 'Density'}, 'Cells');
 sw_fraction = switchRow(shared, 2, 'Cells drawn:', {'100%', '10%'}, '100%');
 sw_color    = switchRow(shared, 3, 'Color by:', {'Region', 'Injection site'}, 'Region');
+chk_sites = uicheckbox(shared, 'Text', 'Injection sites', 'Value', false, ...
+    'Tooltip', sprintf('Stars at the sites selected in the table; slices show sites within %.1f mm', site_window));
+chk_sites.Layout.Row = 4; chk_sites.Layout.Column = [1 4];
 % Regions: buttons set which rows of the table are checked, in the site columns
 % in use (all sites if none are)
-uilabel(shared, 'Text', 'Regions:', 'FontWeight', 'bold');
+lbl_regions = uilabel(shared, 'Text', 'Regions:', 'FontWeight', 'bold');
+lbl_regions.Layout.Row = 5; lbl_regions.Layout.Column = 1;
 region_btns = uigridlayout(shared, [1 3], 'Padding', 0, 'ColumnSpacing', 4);
-region_btns.Layout.Column = [2 4];
+region_btns.Layout.Row = 5; region_btns.Layout.Column = [2 4];
 btn_reg_all  = uibutton(region_btns, 'Text', 'All');
 btn_reg_pal  = uibutton(region_btns, 'Text', 'Pallial', 'Tooltip', strjoin(pallial, ', '));
 btn_reg_none = uibutton(region_btns, 'Text', 'None');
@@ -240,7 +250,7 @@ tbl = uitable(shared, 'Data', [table(regions') array2table(sel0)], ...
     'ColumnName', [{sprintf('Region\nAP (mm)')}, site_headers], 'RowName', {}, ...
     'ColumnEditable', [false true(1, height(sites))], ...
     'ColumnWidth', [{80}, repmat({'1x'}, 1, height(sites))]);   % site columns share the rest of the width
-tbl.Layout.Column = [1 4];
+tbl.Layout.Row = 6; tbl.Layout.Column = [1 4];
 style_row_on = uistyle('BackgroundColor', [0.80 0.88 1.00], 'FontWeight', 'bold');
 % Birds: multi-select list; counts (set in updateGroups) are cells in the table selection
 lbl_birds = uilabel(ctrl, 'Text', 'Birds:', 'FontWeight', 'bold');
@@ -270,6 +280,7 @@ for ip = 1:3                     % not kk: nested functions would share it
 end
 h_groups3d = gobjects(0);
 h_key3d = gobjects(0);       % legend stand-ins: cell markers drawn larger than in the plot
+h_sites3d = siteMarkers(ax_3d, site_colors);   % injection sites (drawSites)
 groups = struct('idx', {}, 'show', {}, 'color', {}, 'name', {}, 'label', {}, 'I', {});
 cell_ap = []; cell_ml = []; cell_dv = [];   % cells in the display frame (updateCellDisplay)
 drawTemplate3d();
@@ -285,6 +296,7 @@ title_fmt = {'Coronal, AP %.2f mm', 'Sagittal, ML %.2f mm', 'Horizontal, DV %.2f
 h_outline = gobjects(3, 3);     % slice x outline
 h_cross = gobjects(3, 2);       % slice x (vertical, horizontal)
 h_groups2d = {gobjects(0), gobjects(0), gobjects(0)};
+h_sites2d = gobjects(3, height(sites));   % slice x site (setupSlices)
 setupSlices();
 
 %% Measuring box: a button on each slice's and the section image's axes toolbar;
@@ -319,6 +331,7 @@ chk_dl.ValueChangedFcn    = @(~, ~) toggleOutlines();
 chk_grid.ValueChangedFcn  = @(~, ~) arrayfun(@applyGrid, [ax_cor ax_sag ax_hor ax_3d]);
 chk_minor.ValueChangedFcn = @(~, ~) arrayfun(@applyGrid, [ax_cor ax_sag ax_hor ax_3d]);
 chk_planes.ValueChangedFcn = @(~, ~) set(h_planes, 'Visible', chk_planes.Value);
+chk_sites.ValueChangedFcn  = @(~, ~) updateGroups();
 sw_display.ValueChangedFcn = @(~, ~) updateGroups();
 sw_fraction.ValueChangedFcn = @(~, ~) updateGroups();
 lst_birds.ValueChangedFcn  = @(~, ~) updateGroups();
@@ -364,6 +377,24 @@ templateChanged();     % sets outline checkboxes for the template, then updateGr
         % Cells from the MC022_75 frame to the display frame
         [cell_ap, cell_dv] = rotateNoseDown(ap_frame, dv_frame, spn_angle.Value - frame_angle);
         cell_ml = ml_frame;
+        [site_ap_d, site_dv_d] = rotateNoseDown(site_ap, site_dv, spn_angle.Value - frame_angle);
+    end
+
+    function show = sitesShown()
+        % Injection sites to mark: the table's site columns with any region checked
+        show = chk_sites.Value & any(tbl.Data{:, 2:end}, 1)';
+    end
+
+    function drawSites3d()
+        uistack(h_sites3d, 'top');   % over the cells
+        show = sitesShown();
+        for kk = 1:height(sites)
+            if show(kk)
+                set(h_sites3d(kk), 'XData', site_ap_d(kk), 'YData', sites.ML(kk), 'ZData', site_dv_d(kk));
+            else
+                set(h_sites3d(kk), 'XData', NaN, 'YData', NaN, 'ZData', NaN);
+            end
+        end
     end
 
     function templateChanged()
@@ -489,6 +520,7 @@ templateChanged();     % sets outline checkboxes for the template, then updateGr
             in_sel = in_sel & ismember(cell_bird, lst_birds.Value);
             groups = makeGroups(in_sel, keys, key_of_cell, by_region, use_blobs, cell_ap, cell_ml, cell_dv, site_colors);
             draw3d(use_blobs);
+            drawSites3d();
             makeSliceGroups(use_blobs);
             drawSlices();
         end
@@ -552,6 +584,7 @@ templateChanged();     % sets outline checkboxes for the template, then updateGr
                 end
             end
             h_groups2d{dim} = h;
+            uistack(h_sites2d(dim, :), 'top');   % injection sites over the cells
         end
     end
 
@@ -684,6 +717,7 @@ templateChanged();     % sets outline checkboxes for the template, then updateGr
             end
             h_cross(dim, 1) = xline(ax, s.cross(1), ':', 'Color', .3*[1 1 1]);
             h_cross(dim, 2) = yline(ax, s.cross(2), ':', 'Color', .3*[1 1 1]);
+            h_sites2d(dim, :) = siteMarkers(ax, site_colors);
             daspect(ax, [1 1 1]);
             xlim(ax, s.hx([1 end])); ylim(ax, s.hy([1 end]));
             if dim > 1, ax.XDir = 'reverse'; end      % anterior to the left, as in the 3D view
@@ -735,6 +769,15 @@ templateChanged();     % sets outline checkboxes for the template, then updateGr
                     in = g.show(c >= lo & c < hi);
                     set(h_groups2d{dim}(kk), 'XData', s.cx(in), 'YData', s.cy(in));
                 end
+            end
+            % Injection sites within site_window of the plane
+            P = [site_ap_d, sites.ML, site_dv_d];
+            axes_of = {[2 3 1], [1 3 2], [1 2 3]};   % slice x, slice y, depth
+            P = P(:, axes_of{dim});
+            near = sitesShown() & abs(depth_sign*P(:, 3) - (lo + hi)/2) <= site_window;
+            for kk = 1:height(sites)
+                if near(kk), set(h_sites2d(dim, kk), 'XData', P(kk, 1), 'YData', P(kk, 2));
+                else, set(h_sites2d(dim, kk), 'XData', NaN, 'YData', NaN); end
             end
             slice_ax(dim).Title.String = sprintf(title_fmt{dim}, s.pos);
         end
@@ -826,6 +869,12 @@ templateChanged();     % sets outline checkboxes for the template, then updateGr
         end
         delete(h_sec_keys);
         h_sec_keys = groupLegend(ax_sec, groups2, h_sec_groups, labels, use_blobs);
+        near = sitesShown() & abs(site_ap - sec_ap(si)) <= site_window;   % section image: MC022_75 frame
+        for kk = 1:height(sites)
+            if near(kk), set(h_sec_sites(kk), 'XData', sites.ML(kk), 'YData', site_dv(kk));
+            else, set(h_sec_sites(kk), 'XData', NaN, 'YData', NaN); end
+        end
+        uistack(h_sec_sites, 'top');   % over the cells
         [~, names] = fileparts(secs.image_file(ka));
         % secs.AP: placed AP (Dryad AP with the vibratome scale and ap_shift), same as tab 1's AP
         lbl_sec.Text = sprintf('AP %.2f mm, %s (trueOrder %d)', secs.AP(ka(1)), strjoin(names, ' + '), so);
@@ -844,6 +893,35 @@ templateChanged();     % sets outline checkboxes for the template, then updateGr
         set(ax, 'XGrid', chk_grid.Value, 'YGrid', chk_grid.Value, 'ZGrid', chk_grid.Value, ...
             'XMinorGrid', chk_minor.Value, 'YMinorGrid', chk_minor.Value, 'ZMinorGrid', chk_minor.Value);
     end
+end
+
+
+function h = siteMarkers(ax, colors)
+% One hidden star per injection site (row of colors), black edged; data set when shown
+h = gobjects(size(colors, 1), 1);
+for k = 1:size(colors, 1)
+    h(k) = line(ax, 'XData', NaN, 'YData', NaN, 'ZData', NaN, 'LineStyle', 'none', 'Marker', 'p', ...
+        'MarkerSize', 16, 'MarkerFaceColor', colors(k, :), 'MarkerEdgeColor', 'k', 'HitTest', 'off');
+end
+end
+
+
+function [ap, dv] = sitePositions(sites, tf, F_brain, frame_angle, zz)
+% Injection sites (Table 1: AP, ML from lambda; depth below the brain surface at
+% head_angle) in the MC022_75 frame: AP mapped like the cells (dryadToTemplate),
+% the surface found along the vertical of the head_angle frame, at +ML (the
+% injected side). F_brain: MC022_75's brain interpolant {yy, xx, zz}.
+ap = nan(height(sites), 1); dv = ap;
+ap_frame = tf.ap_mid + (sites.AP - tf.ap_mid) * tf.ap_scale + tf.ap_shift;
+for k = 1:height(sites)
+    rot = sites.head_angle(k) - frame_angle;               % frame -> head_angle frame, deg nose down
+    ap_h = ap_frame(k);                                    % Table 1 AP is in the head_angle frame
+    z = zz(:);
+    [x, zf] = rotateNoseDown(ap_h * ones(size(z)), z, -rot);   % vertical line back in the frame
+    inside = F_brain(sites.ML(k) * ones(size(z)), x, zf) > 0.5;
+    if ~any(inside), continue; end
+    [ap(k), dv(k)] = rotateNoseDown(ap_h, max(z(inside)) - sites.depth(k), -rot);
+end
 end
 
 
@@ -870,7 +948,7 @@ function C = loadViewerCache(data_dir)
 % file's date changes or cache_version does (bump it when the code that makes the
 % cache changes: here, loadDryadCells, dryadToTemplate, rotateNoseDown,
 % loadBrain3d).
-cache_version = 8;   % 8: loadBrain3d loads volumes and grid only
+cache_version = 9;   % 9: Dryad cells placed by depth below their section top
 cache_file = fullfile(tempdir, 'brainViewerCache.mat');
 src = fullfile(data_dir, {'MC022_75.mat', 'MC029_fixed.mat', fullfile('dryad_applegate2023', 'anatomy.mat'), 'MC029_orig.mat'});
 src_time = max(cellfun(@(f) dir(f).datenum, src));

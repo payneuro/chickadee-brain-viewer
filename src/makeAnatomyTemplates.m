@@ -38,7 +38,11 @@ opts = struct('ref_angle', 55.1, ...  % MC029_fixed's effective skull-groove ang
     'bin', 0.05, ...                  % ML bin for dorsal-surface matching (mm)
     'close_um', 75, ...               % closing radius for section masks: fills cracks/infoldings < 2x this
     'open_um', 240, ...               % opening radius after closing: removes protrusions < 2x this
-    'median_sections', 3);            % template: median over this many neighboring sections along AP
+    'median_sections', 3, ...         % template: median over this many neighboring sections along AP
+    'dryad_tilt', 10, ...             % How Dryad sections were placed (undone by loadDryadCells): on MC029_orig
+    'dryad_ap_offset', 1, ...         % rotated dryad_tilt deg nose down (nominal 65 -> 75 deg), coronal plane at
+    'dryad_dv_offset', -0.68);        % Dryad AP + dryad_ap_offset, section top at its top + dryad_dv_offset (mm).
+                                      % Measured on MC022: its Dryad cells vs the same cells in its images
 qc_aps = [-1.0 0.0 1.0 2.0 3.0 3.8 4.5 5.5];   % sections shown in the QC figure
 % Region of each labelledCells label number (columns: label 1, 2, ...), per
 % channel. Not stored with the data: for MC022, inferred by matching per-section
@@ -71,13 +75,13 @@ for ib = 1:numel(birds)
         bird = loadAnatomyBird(bird_dir, dry, data_dir);    % reload with the corrections
     end
     T = buildBirdTemplate(bird, ref, opts);
-    dry_fixed = loadDryadCells(data_dir, T.P);   % Dryad DV moved onto MC029_fixed, at the placement just used
-    dry.DV = dry_fixed.DV(string(dry_fixed.bird) == birds{ib});
-    T.tf = fitDryadTransform(T, bird, dry);
+    dry_depth = loadDryadCells(data_dir, T.P);   % Dryad DV -> depth below each cell's section top
+    dry.DV = dry_depth.DV(string(dry_depth.bird) == birds{ib});
+    T.tf = fitDryadTransform(T, bird, dry, ref, opts.bird_angle - opts.ref_angle);
     fprintf('%s: %d/%d sections aligned; dorsal fit MAD median %.3f mm\n', bird.name, ...
         nnz(~isnan(T.sections.shift)), height(T.sections), median(T.sections.fit_mad, 'omitnan'));
-    fprintf('  Dryad -> template: theta %.2f deg nose down, c %.3f mm, RMS %.3f mm over %d section-channels\n', ...
-        T.tf.theta, T.tf.c, T.tf.rms, height(T.tf.per_section));
+    fprintf('  Dryad -> template: section top %.3f mm from the reference top, RMS %.3f mm over %d section-channels\n', ...
+        T.tf.dv_offset, T.tf.rms, height(T.tf.per_section));
     T.P.overlap_ref = overlapWithRef(T, ref);
     fprintf('  overlap with %s over the template''s AP range: Dice %.3f\n', 'MC029', T.P.overlap_ref);
     S = T.tf.per_section;
@@ -621,6 +625,7 @@ T.xx = ref.xx; T.yy = yy; T.zz = zz;
 T.Ibrain = Ibrain;
 T.P = struct('bird', bird.name, 'dI', dI, 'default_angle', opts.bird_angle, ...
     'ref_angle', opts.ref_angle, 'ap_shift', opts.ap_shift, 'section_step', opts.section_step, 'ap_mid', ap_mid, 'bin', opts.bin, ...
+    'dryad_tilt', opts.dryad_tilt, 'dryad_ap_offset', opts.dryad_ap_offset, 'dryad_dv_offset', opts.dryad_dv_offset, ...
     'built', char(datetime('now', 'Format', 'yyyy-MM-dd HH:mm')));
 T.sections = sections;
 end
@@ -876,24 +881,25 @@ P = vertcat(out{:});
 end
 
 
-function tf = fitDryadTransform(T, bird, dry)
-% tf = fitDryadTransform(T, bird, dry) fits the rotation and DV offset that map a
-% bird's Dryad DV onto its DV in template T (built by buildBirdTemplate from the
-% same bird's sections). The result is applied with dryadToTemplate, also to birds
-% that have no section outlines.
+function tf = fitDryadTransform(T, bird, dry, ref, rot)
+% tf = fitDryadTransform(T, bird, dry, ref, rot) finds how to place Dryad cells,
+% given as depth below their section's top (loadDryadCells with T.P), in template
+% T: each section's top goes at the dorsal-most point of the reference slice at
+% the section's AP (ref rotated rot deg nose down, as when building T) plus one
+% DV offset, fitted here on the bird T was built from. The result is applied with
+% dryadToTemplate, also to birds that have no section outlines.
 %
 % bird  from loadAnatomyBird; uses bird.labelled (per wavelength: .cells with
 %       .pos/.label per section, .wavelength) and bird.section_ap
-% dry   Dryad rows for this bird: AP, ML, DV, wavelength
+% dry   Dryad rows for this bird: AP, ML, DV (depth below the section top), wavelength
 %
 % Per section, cells with label > 0 are mapped from pixels with
 % pixelsToTemplate and compared with the Dryad cells at the same AP and
 % wavelength by their mean DV (row order differs, so cells are not paired).
-% Model: frame DV = DV rotated theta deg nose down (after AP is scaled and shifted
-% like the sections, see dryadToTemplate) + c.
 %
-% tf: theta, c, ap_shift, ap_scale, ap_mid, rms, plus per-section table (AP, n, mean DV in frame,
-% mean Dryad DV, residual, mean ML from pixels and from Dryad).
+% tf: ap_shift, ap_scale, ap_mid, top_ap, top_dv (template-frame AP and DV where a
+% section's top goes), dv_offset, rms, plus per-section table (AP, n, mean DV in
+% frame, mean Dryad depth, residual, mean ML from pixels and from Dryad).
 %
 % Hannah Payne, 2026
 
@@ -913,22 +919,16 @@ for w = 1:numel(bird.labelled)
 end
 S = cell2table(rows, 'VariableNames', {'k', 'wavelength', 'AP', 'n', 'dv_frame', 'dv_dryad', 'ap_dryad', 'ml_pixels', 'ml_dryad'});
 
-tf = struct('theta', 0, 'c', 0, 'ap_shift', T.P.ap_shift, ...
-    'ap_scale', T.P.section_step / 0.1, 'ap_mid', T.P.ap_mid);
-gap = @(th) S.dv_frame - modelDV(S.ap_dryad, S.dv_dryad, tf, th);
-cost = @(th) sum(S.n .* (gap(th) - wmean(gap(th), S.n)).^2);
-tf.theta = fminbnd(cost, -30, 30);
-tf.c = wmean(gap(tf.theta), S.n);
-S.residual = gap(tf.theta) - tf.c;
+top_dv = arrayfun(@(a) max(refSliceTop(ref, a, rot)), ref.xx);   % NaN off the reference
+tf = struct('ap_shift', T.P.ap_shift, 'ap_scale', T.P.section_step / 0.1, 'ap_mid', T.P.ap_mid, ...
+    'top_ap', ref.xx(~isnan(top_dv)), 'top_dv', top_dv(~isnan(top_dv)), 'dv_offset', 0);
+[~, ~, dv_model] = dryadToTemplate(S.ap_dryad, zeros(height(S), 1), S.dv_dryad, tf);
+gap = S.dv_frame - dv_model;
+tf.dv_offset = wmean(gap, S.n);
+tf.top_dv = tf.top_dv + tf.dv_offset;
+S.residual = gap - tf.dv_offset;
 tf.rms = sqrt(wmean(S.residual.^2, S.n));
 tf.per_section = S;
-end
-
-
-function dv = modelDV(AP, DV, tf, theta)
-% Frame DV of Dryad (AP, DV) under tf with rotation theta and no DV offset
-tf.theta = theta; tf.c = 0;
-[~, ~, dv] = dryadToTemplate(AP, zeros(size(AP)), DV, tf);
 end
 
 

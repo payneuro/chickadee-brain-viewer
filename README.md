@@ -15,6 +15,7 @@ lateral (`yy`, medial/lateral, animal's right positive), dorsal (`zz`, dorsal/ve
 chickadee-brain-viewer/
 ├── brainViewer.m   main viewer
 ├── src/            source code
+├── docs/           README screenshots
 ├── data/           data; downloaded from Dropbox if missing (not in git)
 └── results/        figures (not in git)
 ```
@@ -37,11 +38,19 @@ chickadee-brain-viewer/
   bird list starts with MC022 only.
 - The square button on each slice's axes toolbar draws a
   box labelled with its ΔX and ΔY in mm.
+- "Injection sites" (both tabs) marks each site selected in the table with a
+  star in its color: in 3D always, in a slice or section when within 0.5 mm of
+  it. Positions from Table 1 of the paper (AP, ML; DV as depth below the
+  MC022_75 surface, site 1 at its 90° head angle), on the injected side.
+
+![Tab 1: template slices and 3D view with MC022's labelled cells](docs/tab1.png)
 
 **Tab 2, MC022 sections.** Each MC022 coronal section in the template frame,
 with its outline and MC022's labelled cells.
 
-**Cells.** Other birds' cells come from the Dryad data (`loadDryadCells`).The Dryad data is currently misaligned. MC022's own cells come from its section images instead, for the regions its label files cover (DL/CDL, HD, NIL_M, NFL, NIL_L). Subcortical data currently missing for HC022. 
+![Tab 2: one MC022 section with its outline and labelled cells](docs/tab2.png)
+
+**Cells.** Other birds' cells come from the Dryad data (`loadDryadCells`). The Dryad data is currently misaligned. MC022's own cells come from its section images instead, for the regions its label files cover (DL/CDL, HD, NIL_M, NFL, NIL_L). Subcortical data currently missing for MC022.
 
 ## How the MC022 template is built
 
