@@ -2,7 +2,7 @@
 % Each bird's folder "<imaging_root>\<bird> sortedSlices" has the layout read by
 % loadAnatomyBird. Add birds to the list as their section data become available.
 %
-% Output per bird: data\<bird>_75.mat with xx, yy, zz, Ibrain (brain outline only),
+% Output per bird: data\<bird>.mat with xx, yy, zz, Ibrain (brain outline only),
 % P, sections (per-section AP, DV shift, midline, pixel size, image file, ...) and
 % tf (Dryad transform, used by brainViewer through dryadToTemplate). sections.cells:
 % each section's labelled cells (all wavelengths) in the template frame.
@@ -11,7 +11,7 @@
 % Section images are read at 1/8 through readSectionImage (cached in data\<bird>_ds8).
 % Tissue outlines and joins of detached pieces: data\<bird>_outlines.mat (run
 % makeSectionOutlines first).
-% QC figures (plot_qc = true): results\<bird>_75_qc.png, _midline_qc_1/2.png,
+% QC figures (plot_qc = true): results\<bird>_qc.png, _midline_qc_1/2.png,
 % _auto_qc.png, _smoothing_qc.png
 %
 % Steps are the local functions below: loadAnatomyBird (section data + pixel size
@@ -31,8 +31,8 @@ plot_qc = false;            % true: also draw the QC figures and save them to re
 % volume vs MC029, Dice 0.946; DV offset fixed at 0). section_step is the same
 % vibratome for all birds: it scales each bird's AP spacing (about the series
 % middle) and MC029's ML (sagittal sections, about the midline).
-opts = struct('ref_angle', 55.1, ...  % MC029_fixed's effective skull-groove angle: 75 - 19.9 deg fitted tilt
-    'bird_angle', 75, ...             % anatomy birds: 75 deg (capillary on beak groove)
+opts = struct('ref_angle', 65, ...    % MC029_fixed's skull-groove angle (nominal; trusted, from its alignment wires)
+    'bird_angle', 85, ...             % MC022's sectioning angle: ref_angle + 20 deg tilt (fit 19.9; injected at 75)
     'ap_shift', 0.5, ...              % added to Dryad section AP (fit 0.50 mm)
     'section_step', 0.1062, ...       % vibratome section thickness (mm): nominal 0.1 x fitted 1.062
     'bin', 0.05, ...                  % ML bin for dorsal-surface matching (mm)
@@ -41,8 +41,10 @@ opts = struct('ref_angle', 55.1, ...  % MC029_fixed's effective skull-groove ang
     'median_sections', 3, ...         % template: median over this many neighboring sections along AP
     'dryad_tilt', 10, ...             % How Dryad sections were placed (undone by loadDryadCells): on MC029_orig
     'dryad_ap_offset', 1, ...         % rotated dryad_tilt deg nose down (nominal 65 -> 75 deg), coronal plane at
-    'dryad_dv_offset', -0.68);        % Dryad AP + dryad_ap_offset, section top at its top + dryad_dv_offset (mm).
+    'dryad_dv_offset', -0.68, ...     % Dryad AP + dryad_ap_offset, section top at its top + dryad_dv_offset (mm).
                                       % Measured on MC022: its Dryad cells vs the same cells in its images
+    'lambda_ap', 0.5);                % lambda (mm) sits this far anterior of the frames' AP 0, by eye; the
+                                      % viewer moves all templates and cells back by it (brainViewer)
 qc_aps = [-1.0 0.0 1.0 2.0 3.0 3.8 4.5 5.5];   % sections shown in the QC figure
 % Region of each labelledCells label number (columns: label 1, 2, ...), per
 % channel. Not stored with the data: for MC022, inferred by matching per-section
@@ -90,9 +92,9 @@ for ib = 1:numel(birds)
     T.sections.cells = sectionCells(T, bird, label_key.(bird.name));
     T.injections = unique(table(string(dry.wavelength), string(dry.Transverse), dry.Long, ...   % tracer per wavelength (Dryad)
         'VariableNames', {'wavelength', 'Transverse', 'Long'}));
-    save(fullfile(data_dir, [bird.name '_75.mat']), '-struct', 'T', '-v7');
+    save(fullfile(data_dir, [bird.name '.mat']), '-struct', 'T', '-v7');
     if ~plot_qc, continue; end
-    plotTemplateQC(T, bird, ref, opts, dry, qc_aps, fullfile(results_dir, [bird.name '_75_qc.png']));
+    plotTemplateQC(T, bird, ref, opts, dry, qc_aps, fullfile(results_dir, [bird.name '_qc.png']));
     plotMidlineQC(T, bird, fullfile(results_dir, [bird.name '_midline_qc']));
     plotAutoQC(bird, fullfile(results_dir, [bird.name '_auto_qc.png']));
     plotSmoothingQC(T, opts, fullfile(results_dir, [bird.name '_smoothing_qc.png']));
@@ -452,8 +454,8 @@ function T = buildBirdTemplate(bird, ref, opts)
 % to the reference brain).
 %
 % Steps
-%   1. Rotate the reference nose down by bird_angle - ref_angle (75 - 55.1 =
-%      19.9 deg, fitted by fitReferencePlacement) about lambda (0,0,0), so it is
+%   1. Rotate the reference nose down by bird_angle - ref_angle (85 - 65 =
+%      20 deg; 19.9 fitted by fitReferencePlacement) about lambda (0,0,0), so it is
 %      at the bird's skull-groove angle.
 %   2. For each section: outline in mm, ML from the hand-drawn midline, height
 %      along the midline. Its dorsal surface (highest outline point in each ML bin)
@@ -626,7 +628,7 @@ T.Ibrain = Ibrain;
 T.P = struct('bird', bird.name, 'dI', dI, 'default_angle', opts.bird_angle, ...
     'ref_angle', opts.ref_angle, 'ap_shift', opts.ap_shift, 'section_step', opts.section_step, 'ap_mid', ap_mid, 'bin', opts.bin, ...
     'dryad_tilt', opts.dryad_tilt, 'dryad_ap_offset', opts.dryad_ap_offset, 'dryad_dv_offset', opts.dryad_dv_offset, ...
-    'built', char(datetime('now', 'Format', 'yyyy-MM-dd HH:mm')));
+    'lambda_ap', opts.lambda_ap, 'built', char(datetime('now', 'Format', 'yyyy-MM-dd HH:mm')));
 T.sections = sections;
 end
 

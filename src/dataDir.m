@@ -1,5 +1,5 @@
 function data_dir = dataDir()
-% data_dir = dataDir() returns the folder holding the data files (MC022_75.mat,
+% data_dir = dataDir() returns the folder holding the data files (MC022.mat,
 % MC029_fixed.mat, MC029_orig.mat, dryad_applegate2023\anatomy.mat, MC022_ds8\
 % images), first of:
 %   1. data\ in the repository (a local copy; the build scripts write here)
@@ -11,7 +11,7 @@ function data_dir = dataDir()
 
 shared_dir = 'Z:\Hannah\imaging\plotChickadeeBrain\data';
 dropbox_url = 'https://www.dropbox.com/scl/fo/1kjz4tkh3fw4lckc4yrw2/AIGJRO2nt89LfSsVwOjWvlE?rlkey=ec833tj9nj63ctl9vs4zgunwh&dl=1';
-required = {'MC022_75.mat', 'MC029_fixed.mat', 'MC029_orig.mat', fullfile('dryad_applegate2023', 'anatomy.mat')};
+required = {'MC022.mat', 'MC029_fixed.mat', 'MC029_orig.mat', fullfile('dryad_applegate2023', 'anatomy.mat')};
 
 persistent found
 if ~isempty(found), data_dir = found; return; end

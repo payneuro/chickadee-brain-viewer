@@ -8,6 +8,7 @@ templates, and for building a template from an anatomy bird's coronal sections.
 Coordinates are in mm relative to lambda (the point where the two hemispheres
 and the cerebellum meet in the MC029 template): anterior (`xx`, anterior/posterior, anterior positive),
 lateral (`yy`, medial/lateral, animal's right positive), dorsal (`zz`, dorsal/ventral, dorsal positive).
+Injections are on the right.
 
 ## Layout
 
@@ -28,20 +29,14 @@ chickadee-brain-viewer/
 
 **Tab 1, Template and cells.** Coronal, sagittal and horizontal slices plus a
 3D view of a template with the selected cells.
-- Template: MC022_75 (brain outline only) or MC029_fixed (with hippocampus and
-  DL/CDL). Both are shown at the "Skull groove" angle (default 75°, MC022's
-  angle; 65° = 30° bite bar).
+- Template: MC022 (brain outline only) or MC029 (sagittally sectioned
+  template, hippocampus and DL/CDL annotated).
 - AP snaps to MC022's coronal sections (0.1062 mm, the fitted vibratome
   thickness); ML and DV step by 0.1 mm. Each slice view shows the cells within
   one step of its plane.
-- The table picks labelled regions (rows) and injection sites (columns); the
-  bird list starts with MC022 only.
 - The square button on each slice's axes toolbar draws a
   box labelled with its ΔX and ΔY in mm.
-- "Injection sites" (both tabs) marks each site selected in the table with a
-  star in its color: in 3D always, in a slice or section when within 0.5 mm of
-  it. Positions from Table 1 of the paper (AP, ML; DV as depth below the
-  MC022_75 surface, site 1 at its 90° head angle), on the injected side.
+- "Probe track": click a target in the coronal slice.
 
 ![Tab 1: template slices and 3D view with MC022's labelled cells](docs/tab1.png)
 
@@ -50,9 +45,17 @@ with its outline and MC022's labelled cells.
 
 ![Tab 2: one MC022 section with its outline and labelled cells](docs/tab2.png)
 
-**Cells.** Other birds' cells come from the Dryad data (`loadDryadCells`). The Dryad data is currently misaligned. MC022's own cells come from its section images instead, for the regions its label files cover (DL/CDL, HD, NIL_M, NFL, NIL_L). Subcortical data currently missing for MC022.
+**Cells.** Other birds' cells come from the Dryad data (`loadDryadCells`).
 
-## How the MC022 template is built
+## Details
+
+### Cells
+
+The Dryad data is currently misaligned. MC022's own cells come from its section
+images instead, for the regions its label files cover (DL/CDL, HD, NIL_M, NFL,
+NIL_L). Subcortical data currently missing for MC022.
+
+### How the MC022 template is built
 
 `makeAnatomyTemplates` (steps are its local functions):
 1. `loadAnatomyBird`: reads `metaDataUpdated3.mat` (midlines, section order,
@@ -70,11 +73,10 @@ with its outline and MC022's labelled cells.
 
 Fitted placement (`fitReferencePlacement`): vibratome scale 1.062 (applied to
 MC022's AP spacing and MC029's ML, since MC029 was cut sagittally), AP shift
-0.5 mm, tilt 19.9° (MC029 effectively at 55.1°), DV offset 0. AP shift and tilt
-trade off along a flat ridge, so AP is the least certain of these.
+0.5 mm, tilt 20°, DV offset 0. AP shift and tilt trade off
+along a flat ridge, so AP is the least certain of these.
 
-
-## Data (not in git)
+### Data (not in git)
 
 `dataDir` finds the data folder, in this order:
 
@@ -93,7 +95,7 @@ Dropbox folder so the copies stay the same.
 | `MC029_fixed.mat` | Reference template (Ibrain, Ihippo, Idl on xx/yy/zz), Hannah's corrected tracing of bird MC029. |
 | `MC029_orig.mat` | Marissa's original MC029 tracing; Dryad DV was set against it. |
 | `dryad_applegate2023\` | The Dryad download of Applegate et al. 2023, unchanged: `anatomy.mat` (one table of labelled cells per bird, 847,046 cells in all: ROI, Long, Transverse, Hemisphere, AP, ML, DV, wavelength) and its `README.md`. DV is against MC029_orig; `loadDryadCells` moves it onto MC029_fixed. |
-| `MC022_75.mat` | MC022 template: Ibrain, xx/yy/zz, sections table (per-section placement, outlines, cells), P (build options), tf (Dryad transform), injections. |
+| `MC022.mat` | MC022 template: Ibrain, xx/yy/zz, sections table (per-section placement, outlines, cells), P (build options), tf (Dryad transform), injections. |
 | `MC022_outlines.mat` | Detected outlines and joins per section image. |
 | `MC022_ds8\` | 1/8-scale section images, all four channels (89 images each; rebuilt from the raw TIFFs on `Z:` when missing). |
 
@@ -101,7 +103,14 @@ Raw sections: `Z:\Hannah\imaging\MC022 sortedSlices` (full-resolution TIFFs,
 about 1 GB each, in four channels: file suffix 395 DAPI, 475 (488 tracer), 555,
 640 (647 tracer); metaData; labelledCells per tracer channel).
 
-## Open issues
+### Implementation notes
+
+- The viewer draws everything 0.5 mm posterior of the stored coordinates, along
+  MC029's AP axis (`lambda_ap`), to correct lambda.
+- With anterior, right and dorsal all positive the frame is left-handed, so the
+  3D view reverses its ML axis to draw the right side on the right.
+
+### Open issues
 
 - MC022's label files cover only DL/CDL, HD, NIL_M, NFL and NIL_L; Dryad's
   6,530 MC022 cells in other regions have no image labels. The label number →
@@ -111,4 +120,3 @@ about 1 GB each, in four channels: file suffix 395 DAPI, 475 (488 tracer), 555,
   lambda by eye.
 - Slice_01 needs a hand-drawn midline (`draw_corrections = true`).
 - Other birds need their own alignment.
-

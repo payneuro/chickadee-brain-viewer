@@ -11,7 +11,7 @@
 % buildBirdTemplate. Score: Dice of section masks vs reference slices, summed
 % over sections. Coarse grid search (dv = 0) on a 0.2 mm grid, then fminsearch
 % on a 0.1 mm grid (~2 min in all).
-% Input: data\<bird>_75.mat (outline_smooth, shift, AP per section), MC029_fixed.mat
+% Input: data\<bird>.mat (outline_smooth, shift, AP per section), MC029_fixed.mat
 % Output: results\<bird>_ref_fit.png, printed parameters
 %
 % Hannah Payne, 2026
@@ -20,7 +20,7 @@ bird = 'MC022';
 code_dir = fileparts(fileparts(mfilename('fullpath')));   % repository root
 results_dir = fullfile(code_dir, 'results');
 if ~isfolder(results_dir), mkdir(results_dir); end
-T = load(fullfile(dataDir(), [bird '_75.mat']));
+T = load(fullfile(dataDir(), [bird '.mat']));
 ref = load(fullfile(dataDir(), 'MC029_fixed.mat'));
 if ~exist('grid_coarse', 'var')     % set it in the workspace beforehand to search a different grid
     grid_coarse = struct('scale', 0.85:0.05:1.25, 'ap_shift', 0.5:0.25:3.5, 'tilt', -15:3:45);

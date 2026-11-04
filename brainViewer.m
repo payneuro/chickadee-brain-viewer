@@ -1,31 +1,37 @@
 function brainViewer
 %% Interactive viewer: chickadee brain templates and retrogradely labeled cells
-% Tab 1: coronal, sagittal and horizontal slices plus a 3D view (bottom right) of
+% Tab 1: coronal, sagittal and horizontal slices plus a 3D view (top left) of
 % a template brain and the selected cells. Sliders set the slice positions; the
-% table picks injection sites and labeled regions.
-% Tab 2: MC022 coronal sections, one at a time, as placed in the MC022_75 frame
+% table picks injection sites and labeled regions. "Probe track": click a point in
+% the brain on the coronal slice to plan a track to it at the set roll angle; the
+% table below gives the target, its depth below the dorsal surface, the entrance
+% point and the depth along the track, and the track is drawn in all four views.
+% Tab 2: MC022 coronal sections, one at a time, as placed in the MC022 frame
 % (detached pieces joined, A/B halves combined; renderSection), in one of four
 % channels, with the outline and MC022's labelled cells. Slider, spinner or the
 % scroll wheel step through sections; the section follows tab 1's AP. The
 % region/site table and display switches are shared by both tabs.
 % Measuring box: square button on the slice and section axes toolbars.
 %
-% Frames. Each template is stored at its own skull-groove angle:
-%   MC022_75    75 deg, brain outline only (built by makeAnatomyTemplates)
-%   MC029_fixed brain + hippocampus + DL/CDL, at the angle and ML stretch fitted to
-%               MC022's sections (MC022_75.mat P.ref_angle, P.section_step/0.1;
-%               fitReferencePlacement)
-% Cells: Dryad AP/ML/DV mapped into the MC022_75 frame (75 deg) by dryadToTemplate,
-% with the transform fitted on MC022 (stored in MC022_75.mat); MC022's own cells
+% Frames. Each template is stored at its own skull-groove angle (MC022.mat P):
+%   MC029_fixed brain + hippocampus + DL/CDL, at 65 deg (P.ref_angle, nominal and
+%               trusted), ML stretched by P.section_step/0.1
+%   MC022       brain outline only (built by makeAnatomyTemplates), sectioned at 85 deg
+%               (P.default_angle): MC029's angle + the tilt fitted to
+%               MC022's sections (fitReferencePlacement: 19.9, rounded to 20). MC022 was injected at
+%               75 deg; a skull groove of 85 shows its sections flat.
+% Cells: Dryad AP/ML/DV mapped into the MC022 frame by dryadToTemplate,
+% with the transform fitted on MC022 (stored in MC022.mat); MC022's own cells
 % come from its section images instead (labelled regions only). Everything is
-% rotated about lambda to the "Skull groove" angle for display (default 75 deg,
-% the angle of most anatomy birds including MC022; 65 deg = 30 deg bite bar).
+% rotated about lambda to the "Skull groove" angle for display (default
+% display_angle, 75 deg, the injection angle of most anatomy birds including
+% MC022; 65 deg = 30 deg bite bar).
 %
-% Data (in dataDir: .\data, the shared copy on Z:, or downloaded): MC022_75.mat,
+% Data (in dataDir: .\data, the shared copy on Z:, or downloaded): MC022.mat,
 % MC029_fixed.mat, MC029_orig.mat, dryad_applegate2023\anatomy.mat (the Dryad
 % cells, read by loadDryadCells). Volumes, 3D surfaces and
 % cell coordinates are cached in tempdir (loadViewerCache). Tab 2 reads
-% MC022_75.mat's sections table and the 1/8 images in MC022_ds8\.
+% MC022.mat's sections table and the 1/8 images in MC022_ds8\.
 % Needs loadBrain3d, plotBrainRegion3d, cellDensity3d, loadDryadCells
 % dryadToTemplate, rotateNoseDown, renderSection
 % (pixelsToTemplateImage, readSectionImage, joinPieces).
@@ -39,8 +45,9 @@ data_dir = dataDir();
 C = loadViewerCache(data_dir);
 tmpl = C.tmpl;                          % templates, each in its native frame
 cells = C.cells;
-ap_frame = C.ap; ml_frame = C.ml; dv_frame = C.dv;   % cells in the MC022_75 frame
-frame_angle = tmpl(1).native_angle;     % skull-groove angle of the cell frame (MC022_75's)
+ap_frame = C.ap; ml_frame = C.ml; dv_frame = C.dv;   % cells in the MC022 frame
+frame_angle = tmpl(1).native_angle;     % skull-groove angle of the cell frame (MC022's)
+display_angle = 75;                     % initial "Skull groove" (deg): the injection angle
 tf = C.tf;
 for it0 = 1:numel(tmpl)                 % one interpolant per volume, for tilted slices
     for nm = ["Ibrain" "Ihippo" "Idl"]
@@ -72,14 +79,14 @@ sites = table(["Hp";"Hp";"Hp";"Hp";"DL";"DL";"DL"], [-1;1;3;5;1;3;5], ...
     (1:7)', [-1;1;3;5;2;3.5;5.5], [1.9;0.4;0.4;0.4;2.3;1.7;0.7], [0.4;0.4;0.4;1.0;0.4;0.4;0.3], [90;75;75;75;75;75;75], ...
     'VariableNames', {'Transverse','Long','Loc','AP','ML','depth','head_angle'});
 site_labels = compose('%s AP %.1f', upper(sites.Transverse), sites.AP);   % HP, DL (data say Hp)
-[site_ap, site_dv] = sitePositions(sites, tf, tmpl(1).F.Ibrain, frame_angle, Dd.zz);   % MC022_75 frame, injected side (+ML)
+[site_ap, site_dv] = sitePositions(sites, tf, tmpl(1).F.Ibrain, frame_angle, Dd.zz);   % MC022 frame
 site_ap_d = site_ap; site_dv_d = site_dv;   % display frame (updateCellDisplay)
 site_window = 0.5;   % mm: a slice or section shows the sites within this distance of its plane
 [~, cell_site] = ismember(string(cells.Transverse) + "_" + cells.Long, ...
     sites.Transverse + "_" + sites.Long);
 
 % Labeled regions, pallial first
-pallial = ["HD","DL/CDL","NFL","NIL_M","NIL_L"];
+pallial = ["DL/CDL","HD","NFL","NIL_M","NIL_L"];
 roi_all = string(categories(categorical(cells.ROI)));
 regions = [pallial(ismember(pallial, roi_all)), setdiff(roi_all, pallial, 'stable')'];
 [~, cell_region] = ismember(string(cells.ROI), regions);
@@ -91,24 +98,37 @@ example_birds = ["MC017","MC025"];
 color_brain = .5*[1 1 1];
 color_hippo = [190 30 45]/255;
 color_dl    = [247 148 29]/255;
-turbo_map = turbo(256);   % skip turbo's dark ends, which vanish on black section images
-region_colors = interp1(linspace(0, 1, 256), turbo_map, linspace(0.15, 0.92, numel(regions)));
-site_colors = [interp1([1 2.5 4], [0.20 0.35 0.90; 0.60 0.25 0.75; 0.85 0.15 0.15], 1:4); ...
-               0.55 0.80 0.35; 0.25 0.60 0.25; 0.10 0.35 0.15];   % Hp blue->red, DL light->dark green
+% Regions: pallial ones set by hand (DL/CDL red, the others cool); the rest
+% spread along turbo without its dark ends (they vanish on black section images)
+pallial_colors = [0.90 0.15 0.15; 0.55 0.25 0.80; 0.00 0.65 0.60; 0.10 0.20 0.65; 0.45 0.70 1.00];   % DL/CDL, HD, NFL, NIL_M, NIL_L
+is_pal = ismember(regions, pallial);
+region_colors = zeros(numel(regions), 3);
+[~, i_pal] = ismember(regions(is_pal), pallial);
+region_colors(is_pal, :) = pallial_colors(i_pal, :);
+region_colors(~is_pal, :) = interp1(linspace(0, 1, 256), turbo(256), linspace(0.15, 0.92, nnz(~is_pal)));
+% Injection sites: Hp warm, DL cool, each location its own hue, posterior to anterior
+site_colors = [0.85 0.10 0.75; 0.90 0.20 0.15; 1.00 0.60 0.00; 0.85 0.75 0.00; ...   % Hp -1, 1, 3, 5: magenta, red, orange, gold
+               0.15 0.20 0.75; 0.00 0.70 0.80; 0.20 0.70 0.25];                       % DL 2, 3.5, 5.5: blue, teal, green
 blob_level = 0.1;   % isosurface level for density blobs
 
 %% Layout
-scr = get(groot, 'ScreenSize');                    % main screen; leave room for title bar and taskbar
-fig_size = min([1500 950], scr(3:4) - [40 110]);
-fig = uifigure('Name', 'Chickadee brain viewer', 'Position', [scr(1:2) + [20 60], fig_size]);
+scr = get(groot, 'ScreenSize');                    % main screen; opens maximized, restores to at most 85% of it
+fig_size = round(min([1300 860], 0.85*scr(3:4)));
+fig = uifigure('Name', 'Chickadee brain viewer', 'Position', [scr(1:2) + round((scr(3:4) - fig_size)/2), fig_size]);
+fig.WindowState = 'maximized';
 set(fig, 'defaultAxesToolbarExpanded', 'off');      % axes toolbars collapsed until hover
 tabs = uitabgroup(uigridlayout(fig, [1 1], 'Padding', 0));
 tab1 = uitab(tabs, 'Title', 'Template and cells');
 tab2 = uitab(tabs, 'Title', 'MC022 sections');
 
-%% Tab 2: sections in the MC022_75 frame
-S2 = load(fullfile(data_dir, 'MC022_75.mat'), 'sections', 'injections');
+%% Tab 2: sections in the MC022 frame
+S2 = load(fullfile(data_dir, 'MC022.mat'), 'sections', 'injections');
 secs = S2.sections;
+% Lambda shift, as the cells (loadViewerCache): section APs and outlines here,
+% the image's DV where it is made (h_sec_img)
+secs.AP = secs.AP - C.lambda(1);
+has_out = ~cellfun(@isempty, secs.outline_smooth);
+secs.outline_smooth(has_out) = cellfun(@(p) p - [0 C.lambda(2)], secs.outline_smooth(has_out), 'UniformOutput', false);
 sec_orders = unique(secs.trueOrder)';
 [sec_ML, sec_DV] = meshgrid(-7:0.02:7, -10:0.02:2);
 % Image channels (file suffix) and their buttons: tracer wavelength with its
@@ -157,28 +177,34 @@ end
 % Checkbox text in a darker shade of the line color, readable on the white panel
 chk_sec_outline = uicheckbox(ctrl2, 'Text', 'Outline', 'Value', true, 'FontColor', 0.7*color_outline);
 chk_sec_outline.Layout.Row = 4; chk_sec_outline.Layout.Column = [1 2];
-% Display range: histogram of the section's image with a min/max slider below.
-% Image units: 0 = background, 1 = a default maximum (renderSection)
-hist_max = 3;            % least upper end of histogram and slider; both ends set per section (drawSection)
+% Display range: histogram of the section's image with a min/max slider below,
+% both on one fixed log scale for all sections: log10(1 + intensity), from 0
+% to clim_top. Image units: 0 = background, 1 = a default maximum (renderSection).
+% The range set stays from section to section (drawSection).
+clim_top = 100;          % top of the histogram and slider (intensity)
+toLog = @(I) log10(1 + max(I, 0));
+clim_ticks = [0 0.3 1 3 10 30 100];
 ax_hist = uiaxes(ctrl2);
 ax_hist.Layout.Row = 6; ax_hist.Layout.Column = [1 2];
-set(ax_hist, 'FontSize', 12, 'TickDir', 'out', 'YScale', 'log', 'Box', 'off', 'Color', 'none');
+set(ax_hist, 'FontSize', 12, 'TickDir', 'out', 'YScale', 'log', 'Box', 'off', 'Color', 'none', ...
+    'XLim', toLog([0 clim_top]), 'XTick', toLog(clim_ticks), 'XTickLabel', string(clim_ticks));
 ax_hist.YAxis.Visible = 'off';   % counts: only the shape matters
 hold(ax_hist, 'on')
 h_hist = stairs(ax_hist, NaN, NaN, 'k-');
-h_clim = xline(ax_hist, [0 1], 'r-');
+h_clim = xline(ax_hist, toLog([0 1]), 'r-');
 xlabel(ax_hist, 'Intensity (0 = background, 1 = default max)')
-sld_clim = uislider(ctrl2, 'range', 'Limits', [-0.1 hist_max], 'Value', [0 1], 'MinorTicks', []);
+sld_clim = uislider(ctrl2, 'range', 'Limits', toLog([0 clim_top]), 'Value', toLog([0 1]), ...
+    'MajorTicks', toLog(clim_ticks), 'MajorTickLabels', string(clim_ticks), 'MinorTicks', []);
 sld_clim.Layout.Row = 7; sld_clim.Layout.Column = [1 2];
 
 ax_sec = uiaxes(main2);
 set(ax_sec, 'FontSize', 12, 'TickDir', 'out');
 hold(ax_sec, 'on')
-h_sec_img = imagesc(ax_sec, sec_ML(1, :), sec_DV(:, 1), zeros(size(sec_ML)), [0 1]);
+h_sec_img = imagesc(ax_sec, sec_ML(1, :), sec_DV(:, 1) - C.lambda(2), zeros(size(sec_ML)), [0 1]);
 colormap(ax_sec, gray); ax_sec.YDir = 'normal';
 xline(ax_sec, 0, ':', 'Color', [1 1 0.6]);
 h_sec_out = plot(ax_sec, NaN, NaN, '-', 'Color', color_outline, 'LineWidth', 1);
-h_sec_sites = siteMarkers(ax_sec, sec_site_colors);   % injection sites near the section (drawSection)
+h_sec_sites = siteMarkers(ax_sec, height(sites));   % injection sites near the section (drawSection)
 h_sec_groups = gobjects(0);    % MC022's cells or density contours per group (drawSection)
 h_sec_keys = gobjects(0);      % their legend stand-ins
 groups2 = struct('idx', {}, 'show', {}, 'color', {}, 'name', {}, 'label', {}, 'I', {});   % MC022-only groups (updateGroups)
@@ -189,10 +215,10 @@ xlabel(ax_sec, 'ML (mm)'); ylabel(ax_sec, 'DV (mm)')
 main = uigridlayout(tab1, [1 2]);
 main.ColumnWidth = {390, '1x'};
 
-% Rows: 3 sliders, template, skull groove, 2 checkbox rows, the controls shared
-% with tab 2 (row shared_row(1)), birds, bird list
-ctrl = uigridlayout(main, [10 2]);
-ctrl.RowHeight = [repmat({42}, 1, 3), repmat({26}, 1, 4), {'1x', 26, 130}];   % sliders need room for tick labels
+% Rows: 3 sliders, template, skull groove, 2 checkbox rows, probe track (2 rows),
+% the controls shared with tab 2 (row shared_row(1)), birds, bird list
+ctrl = uigridlayout(main, [12 2]);
+ctrl.RowHeight = [repmat({42}, 1, 3), repmat({26}, 1, 5), {92, '1x', 26, 130}];   % sliders need room for tick labels
 ctrl.RowSpacing = 6;
 ctrl.ColumnWidth = {120, '1x'};
 
@@ -205,9 +231,9 @@ for sld = [sld_ap sld_ml sld_dv]
 end
 uilabel(ctrl, 'Text', 'Template:', 'FontWeight', 'bold');
 dd_tmpl = uidropdown(ctrl, 'Items', {tmpl.label}, 'ItemsData', 1:numel(tmpl), 'Value', it_cur);
-uilabel(ctrl, 'Text', 'Skull groove (deg):', 'FontWeight', 'bold');
-spn_angle = uispinner(ctrl, 'Value', frame_angle, 'Step', 5, 'Limits', [30 100], ...
-    'Tooltip', '65 deg skull groove = 30 deg bite bar (standard)');
+uilabel(ctrl, 'Text', 'Skull groove (deg):', 'FontWeight', 'bold', 'Tooltip', 'Skull groove 65 deg above horizontal = beak bar 30 deg below horizontal');
+spn_angle = uispinner(ctrl, 'Value', display_angle, 'Step', 5, 'Limits', [30 100], ...
+    'Tooltip', 'Skull groove 65 deg above horizontal = beak bar 30 deg below horizontal');
 % Checkboxes in two rows: outlines on the first, display options on the second
 chk_grid_lay = uigridlayout(ctrl, [2 3], 'Padding', 0, 'RowSpacing', 6, ...
     'RowHeight', {26, 26}, 'ColumnWidth', {'fit', 'fit', 'fit'}, 'ColumnSpacing', 16);
@@ -218,19 +244,38 @@ chk_dl    = uicheckbox(chk_grid_lay, 'Text', 'DL/CDL', 'Value', false, 'FontColo
 chk_planes = uicheckbox(chk_grid_lay, 'Text', 'Slices in 3D', 'Value', true);
 chk_grid  = uicheckbox(chk_grid_lay, 'Text', '1 mm grid', 'Value', true);
 chk_minor = uicheckbox(chk_grid_lay, 'Text', '0.2 mm minor grid', 'Value', false);
+% Probe track: checkbox and roll angle, then a one-row table of the planned
+% coordinates (display frame, mm from lambda; drawProbe)
+color_probe = [0.85 0 0.6];
+probe_lay = uigridlayout(ctrl, [2 3], 'Padding', 0, 'RowSpacing', 6, 'ColumnSpacing', 6, ...
+    'RowHeight', {26, 92}, 'ColumnWidth', {'1x', 'fit', 70});
+probe_lay.Layout.Row = [8 9]; probe_lay.Layout.Column = [1 2];
+chk_probe = uicheckbox(probe_lay, 'Text', 'Probe track (click coronal)', 'Value', false, ...
+    'FontColor', 0.8*color_probe, 'Tooltip', 'Click a point in the brain on the coronal slice to plan a track to it');
+uilabel(probe_lay, 'Text', 'Roll (deg):', 'FontWeight', 'bold');
+spn_roll = uispinner(probe_lay, 'Value', 0, 'Step', 5, 'Limits', [-60 60], ...
+    'Tooltip', 'Angle from vertical in the coronal plane; + aims toward the midline');
+tbl_probe = uitable(probe_lay, 'Data', zeros(0, 7), 'RowName', {}, ...
+    'ColumnName', {'AP', 'ML', 'DV', 'Roll', sprintf('Entr.\nAP'), sprintf('Entr.\nML'), 'Depth'}, ...
+    'ColumnFormat', repmat({'bank'}, 1, 7), 'ColumnWidth', repmat({'1x'}, 1, 7), 'ColumnEditable', true(1, 7), ...
+    'Tooltip', sprintf(['Target AP, ML (mm from lambda, at the skull groove when clicked); DV below the dorsal\n' ...
+    'surface straight above it; roll (+ toward midline); entrance on the brain surface;\n' ...
+    'depth along the track from the entrance. Edit any value: AP, ML or DV moves the target; roll, entrance or depth moves the target along the edited track.']));
+tbl_probe.Layout.Row = 2; tbl_probe.Layout.Column = [1 3];
+probe_ml = []; probe_ap = []; probe_dv = [];   % target in the MC022 frame, like the cells (probeClick)
+probe_angle = [];   % skull groove the track was planned at; its table is in that frame
 % Controls used by both tabs, in one block that tabChanged moves to the tab showing
-shared_row = [8 5];   % its row in ctrl (tab 1) and ctrl2 (tab 2)
+shared_row = [10 5];   % its row in ctrl (tab 1) and ctrl2 (tab 2)
 % Columns: label, switch's left option (right-aligned, so the switches line up),
 % switch, right option
 shared = uigridlayout(ctrl, [6 4], 'Padding', 0, 'RowSpacing', 6, 'ColumnSpacing', 6, ...
-    'ColumnWidth', {120, 'fit', 45, '1x'}, 'RowHeight', {26, 26, 26, 26, 26, '1x'});
+    'ColumnWidth', {'fit', 'fit', 45, '1x'}, 'RowHeight', {26, 26, 26, 26, 26, '1x'});
 shared.Layout.Row = shared_row(1); shared.Layout.Column = [1 2];
 sw_display  = switchRow(shared, 1, 'Display:', {'Cells', 'Density'}, 'Cells');
 sw_fraction = switchRow(shared, 2, 'Cells drawn:', {'100%', '10%'}, '100%');
 sw_color    = switchRow(shared, 3, 'Color by:', {'Region', 'Injection site'}, 'Region');
-chk_sites = uicheckbox(shared, 'Text', 'Injection sites', 'Value', false, ...
-    'Tooltip', sprintf('Stars at the sites selected in the table; slices show sites within %.1f mm', site_window));
-chk_sites.Layout.Row = 4; chk_sites.Layout.Column = [1 4];
+sw_sites    = switchRow(shared, 4, 'Show injection sites:', {'Off', 'On'}, 'Off');
+sw_sites.Tooltip = sprintf('Stars at the sites selected in the table; slices show sites within %.1f mm', site_window);
 % Regions: buttons set which rows of the table are checked, in the site columns
 % in use (all sites if none are)
 lbl_regions = uilabel(shared, 'Text', 'Regions:', 'FontWeight', 'bold');
@@ -268,9 +313,17 @@ ax_cor = uiaxes(axes_grid);
 ax_sag = uiaxes(axes_grid);
 ax_hor = uiaxes(axes_grid);
 ax_3d  = uiaxes(axes_grid);
+% 3D top left, sagittal top right, coronal bottom left, horizontal bottom right
+ax_3d.Layout.Row = 1;  ax_3d.Layout.Column = 1;
+ax_sag.Layout.Row = 1; ax_sag.Layout.Column = 2;
+ax_cor.Layout.Row = 2; ax_cor.Layout.Column = 1;
+ax_hor.Layout.Row = 2; ax_hor.Layout.Column = 2;
 set([ax_cor ax_sag ax_hor ax_3d], 'FontSize', 12, 'TickDir', 'out');   % 12 matches the uifigure controls
+slice_ax = [ax_cor ax_sag ax_hor];
+slice_lims = [];   % data limits the slice views must show (restoreAxes3d, scaleSlices)
 
 %% 3D: template surfaces inside an hgtransform (rotated to the display angle)
+ax_3d.YDir = 'reverse';   % +ML is the animal's right; with +AP anterior and +DV dorsal that is left-handed
 h_tf = hgtransform(ax_3d);
 h_brain = gobjects(1); h_hippo = gobjects(1); h_dl = gobjects(1);
 h_planes = gobjects(3, 1);       % current coronal, sagittal, horizontal slices; drawSlices sets the data
@@ -280,16 +333,15 @@ for ip = 1:3                     % not kk: nested functions would share it
 end
 h_groups3d = gobjects(0);
 h_key3d = gobjects(0);       % legend stand-ins: cell markers drawn larger than in the plot
-h_sites3d = siteMarkers(ax_3d, site_colors);   % injection sites (drawSites)
+h_sites3d = siteMarkers(ax_3d, height(sites));   % injection sites (drawSites3d)
 groups = struct('idx', {}, 'show', {}, 'color', {}, 'name', {}, 'label', {}, 'I', {});
 cell_ap = []; cell_ml = []; cell_dv = [];   % cells in the display frame (updateCellDisplay)
-drawTemplate3d();
-view(ax_3d, 180, 10);
-grid(ax_3d, 'off')
-set(ax_3d, 'XLim', Dd.xx([1 end]), 'YLim', Dd.yy([1 end]), 'ZLim', Dd.zz([1 end]));   % fixed, so planes and cells don't rescale it
+label_margin = 1.3;       % 3D zoom: view this much wider than the box, for its tick labels (restoreAxes3d)
+view_3d_default = [30 10];   % az, el: from the right side and a bit in front, slightly above, anterior right
+view(ax_3d, view_3d_default);
+drawTemplate3d();         % limits around the template brains (restoreAxes3d)
 
 %% Slice views: graphics objects made once, then only their data is updated
-slice_ax = [ax_cor ax_sag ax_hor];
 outline_names = ["Ibrain" "Ihippo" "Idl"];
 outline_colors = [color_brain; color_hippo; color_dl];
 title_fmt = {'Coronal, AP %.2f mm', 'Sagittal, ML %.2f mm', 'Horizontal, DV %.2f mm'};
@@ -298,6 +350,14 @@ h_cross = gobjects(3, 2);       % slice x (vertical, horizontal)
 h_groups2d = {gobjects(0), gobjects(0), gobjects(0)};
 h_sites2d = gobjects(3, height(sites));   % slice x site (setupSlices)
 setupSlices();
+% Probe track, entrance to target (circle), in each slice and in 3D (drawProbe)
+h_probe = gobjects(4, 1);
+probe_ax = [slice_ax ax_3d];
+for ip = 1:4
+    h_probe(ip) = line(probe_ax(ip),'XData', NaN, 'YData', NaN, 'ZData', NaN, ...
+        'Color', color_probe, 'LineWidth', 2, 'Marker', 'o', 'MarkerIndices', 1, ...
+        'MarkerFaceColor', color_probe, 'HitTest', 'off');
+end
 
 %% Measuring box: a button on each slice's and the section image's axes toolbar;
 % drag out a box, labelled with its width and height in mm while it moves. One
@@ -331,7 +391,11 @@ chk_dl.ValueChangedFcn    = @(~, ~) toggleOutlines();
 chk_grid.ValueChangedFcn  = @(~, ~) arrayfun(@applyGrid, [ax_cor ax_sag ax_hor ax_3d]);
 chk_minor.ValueChangedFcn = @(~, ~) arrayfun(@applyGrid, [ax_cor ax_sag ax_hor ax_3d]);
 chk_planes.ValueChangedFcn = @(~, ~) set(h_planes, 'Visible', chk_planes.Value);
-chk_sites.ValueChangedFcn  = @(~, ~) updateGroups();
+sw_sites.ValueChangedFcn   = @(~, ~) updateGroups();
+chk_probe.ValueChangedFcn  = @(~, ~) drawProbe();
+spn_roll.ValueChangedFcn   = @(~, ~) drawProbe();
+tbl_probe.CellEditCallback = @(~, ev) probeEdited(ev);
+ax_cor.ButtonDownFcn       = @(~, ~) probeClick();   % on the axes: zoom/rotate modes clear fig.WindowButtonDownFcn
 sw_display.ValueChangedFcn = @(~, ~) updateGroups();
 sw_fraction.ValueChangedFcn = @(~, ~) updateGroups();
 lst_birds.ValueChangedFcn  = @(~, ~) updateGroups();
@@ -352,7 +416,6 @@ chk_sec_outline.ValueChangedFcn = @(~, ~) drawSection();
 bg_channel.SelectionChangedFcn = @(~, ~) drawSection();
 sld_clim.ValueChangingFcn  = @(~, ev) setDisplayRange(ev.Value);
 sld_clim.ValueChangedFcn   = @(~, ev) setDisplayRange(ev.Value);
-fig.WindowScrollWheelFcn   = @(~, ev) sectionScroll(ev);
 tabs.SelectionChangedFcn   = @(~, ~) tabChanged();
 
 % White background: the figure, its layout containers and the axes around the
@@ -362,10 +425,37 @@ is_container = {'Type', 'uigridlayout', '-or', 'Type', 'uitab', '-or', 'Type', '
 set(findall(fig, is_container{:}), 'BackgroundColor', 'w');
 set([findall(ctrl, is_container{:}); findall(ctrl2, is_container{:})], 'BackgroundColor', 0.97*[1 1 1]);
 
+% Settings remembered between sessions: saved when the window goes, restored
+% here (anything that no longer fits, e.g. after the data change, is skipped)
+settings_file = fullfile(prefdir, 'brainViewerSettings.mat');
+remembered = struct('ap', sld_ap, 'ml', sld_ml, 'dv', sld_dv, 'template', dd_tmpl, ...
+    'angle', spn_angle, 'brain', chk_brain, 'hippo', chk_hippo, 'dl', chk_dl, ...
+    'planes', chk_planes, 'grid', chk_grid, 'minor', chk_minor, 'probe', chk_probe, ...
+    'roll', spn_roll, 'display', sw_display, 'fraction', sw_fraction, 'color', sw_color, ...
+    'sites', sw_sites, 'birds', lst_birds, 'sec_outline', chk_sec_outline, 'clim', sld_clim);
+saved = loadSettings();
+fig.DeleteFcn = @(~, ~) saveSettings();   % on closing, and on delete()
+
 sld_ap.Value = snapValue(sld_ap, sld_ap.Value, 1);   % AP on a section, shared with tab 2
 sld_sec.Value = nearestSection(sld_ap.Value);
 syncSpinners();
 templateChanged();     % sets outline checkboxes for the template, then updateGroups
+if isfield(saved, 'hippo')   % templateChanged turns hippocampus back on
+    chk_hippo.Value = saved.hippo && chk_hippo.Enable;
+    toggleOutlines();
+end
+fig.AutoResizeChildren = 'off';   % (the grid layouts resize anyway) so SizeChangedFcn runs
+fig.SizeChangedFcn = @(~, ~) scaleSlices();
+% 3D drag-rotate is inert after the setup above until re-enabled. (No click
+% callbacks here or on the figure: they turn it off again.)
+enableDefaultInteractivity(ax_3d);
+% Right-click view presets for the 3D view, oriented like the slice views
+views_3d = struct('name', {'Top (horizontal)', 'Side (sagittal)', 'Coronal', 'Default'}, ...
+    'azel', {[0 90], [0 0], [-90 0], view_3d_default});
+ax_3d.ContextMenu = uicontextmenu(fig);
+for iv = 1:numel(views_3d)
+    uimenu(ax_3d.ContextMenu, 'Text', views_3d(iv).name, 'MenuSelectedFcn', @(~, ~) view(ax_3d, views_3d(iv).azel));
+end
 
 
     function rot = templateRotation()
@@ -373,8 +463,52 @@ templateChanged();     % sets outline checkboxes for the template, then updateGr
         rot = spn_angle.Value - tmpl(it_cur).native_angle;
     end
 
+    function s = loadSettings()
+        % Restore the controls, table selection, channel, probe target and 3D
+        % view saved by saveSettings; returns what was saved (empty struct if none)
+        s = struct();
+        if ~isfile(settings_file), return; end
+        try
+            s = load(settings_file).s;
+        catch
+            return
+        end
+        for name = string(fieldnames(remembered))'
+            if isfield(s, name)
+                try remembered.(name).Value = s.(name); catch, end   % out of range now: keep the default
+            end
+        end
+        if isfield(s, 'sel_regions') && size(s.sel, 2) == height(sites)   % matched by region name
+            [has, row] = ismember(regions, s.sel_regions);
+            sel = false(numel(regions), height(sites));
+            sel(has, :) = s.sel(row(has), :);
+            tbl.Data{:, 2:end} = sel;
+        end
+        if isfield(s, 'channel') && isscalar(s.channel) && s.channel <= numel(rb_channel)
+            bg_channel.SelectedObject = rb_channel(s.channel);
+        end
+        if isfield(s, 'probe_target') && numel(s.probe_target) == 4
+            probe_ml = s.probe_target(1); probe_ap = s.probe_target(2); probe_dv = s.probe_target(3);
+            probe_angle = s.probe_target(4);
+        end
+        if isfield(s, 'view'), view(ax_3d, s.view); end
+    end
+
+    function saveSettings()
+        % Save the settings for next time (when the window is deleted, however)
+        s = struct();
+        for name = string(fieldnames(remembered))'
+            s.(name) = remembered.(name).Value;
+        end
+        s.sel = tbl.Data{:, 2:end}; s.sel_regions = regions;
+        s.channel = find(rb_channel == bg_channel.SelectedObject);
+        s.probe_target = [probe_ml probe_ap probe_dv probe_angle];
+        [az, el] = view(ax_3d); s.view = [az el];
+        try save(settings_file, 's'); catch, end   % never block closing
+    end
+
     function updateCellDisplay()
-        % Cells from the MC022_75 frame to the display frame
+        % Cells from the MC022 frame to the display frame
         [cell_ap, cell_dv] = rotateNoseDown(ap_frame, dv_frame, spn_angle.Value - frame_angle);
         cell_ml = ml_frame;
         [site_ap_d, site_dv_d] = rotateNoseDown(site_ap, site_dv, spn_angle.Value - frame_angle);
@@ -382,11 +516,11 @@ templateChanged();     % sets outline checkboxes for the template, then updateGr
 
     function show = sitesShown()
         % Injection sites to mark: the table's site columns with any region checked
-        show = chk_sites.Value & any(tbl.Data{:, 2:end}, 1)';
+        show = strcmp(sw_sites.Value, 'On') & any(tbl.Data{:, 2:end}, 1)';
     end
 
     function drawSites3d()
-        uistack(h_sites3d, 'top');   % over the cells
+        uistack([h_sites3d; h_probe(4)], 'top');   % over the cells
         show = sitesShown();
         for kk = 1:height(sites)
             if show(kk)
@@ -394,6 +528,20 @@ templateChanged();     % sets outline checkboxes for the template, then updateGr
             else
                 set(h_sites3d(kk), 'XData', NaN, 'YData', NaN, 'ZData', NaN);
             end
+        end
+    end
+
+    function colorSites()
+        % Injection site stars black (white edged), or in their site colors
+        % (black edged) when cells are colored by injection site (tab 2: MC022's
+        % channel colors)
+        by_site = strcmp(sw_color.Value, 'Injection site');
+        edge = [1 1 1]; if by_site, edge = [0 0 0]; end
+        for kk = 1:height(sites)
+            c = [0 0 0]; c2 = [0 0 0];
+            if by_site, c = site_colors(kk, :); c2 = sec_site_colors(kk, :); end
+            set([h_sites2d(:, kk); h_sites3d(kk)], 'MarkerFaceColor', c, 'MarkerEdgeColor', edge);
+            set(h_sec_sites(kk), 'MarkerFaceColor', c2, 'MarkerEdgeColor', edge);
         end
     end
 
@@ -406,17 +554,135 @@ templateChanged();     % sets outline checkboxes for the template, then updateGr
         chk_hippo.Enable = has(1); chk_dl.Enable = has(2);
         drawTemplate3d();
         updateGroups();
+        drawProbe();             % the surface and entrance depend on the template
     end
 
     function angleChanged()
         setTemplateTransform();
         updateGroups();          % cells and densities move with the angle
+        drawProbe();
+    end
+
+    function in = insideBrain(ml, ap, dv, angle)
+        % Points inside the current template's brain outline, in the display
+        % frame at skull groove angle (default: the current one)
+        if nargin < 4, angle = spn_angle.Value; end
+        [Xn, Zn] = rotateNoseDown(ap, dv, tmpl(it_cur).native_angle - angle);
+        v = tmpl(it_cur).F.Ibrain(ml, Xn, Zn);
+        in = ~isnan(v) & v > 0.5;
+    end
+
+    function surface = dorsalSurface(ap, ml, angle)
+        % DV of the brain's top at ap, ml (frame at skull groove angle; empty if
+        % none), 0.01 mm steps
+        z = (Dd.zz(end) : -0.01 : Dd.zz(1))';
+        surface = z(find(insideBrain(ml*ones(size(z)), ap*ones(size(z)), z, angle), 1));
+    end
+
+    function probeClick()
+        % Probe track on: a click inside the brain on the coronal slice plans a
+        % new track at the current skull groove, target rounded to 0.1 mm
+        if ~chk_probe.Value || tabs.SelectedTab ~= tab1, return; end
+        p = round([sld_ap.Value, ax_cor.CurrentPoint(1, 1:2)] * 10) / 10;   % AP, ML, DV
+        if ~insideBrain(p(2), p(1), p(3)), return; end
+        probe_angle = spn_angle.Value;
+        setProbeTarget(p(1), p(2), p(3));
+    end
+
+    function probeEdited(ev)
+        % Edited probe table (coordinates at the planning skull groove). The
+        % target (AP, ML, DV below the dorsal surface) moves there; an edit to
+        % the track (roll, entrance AP or ML, depth) keeps the other three and
+        % moves the target to the end of the track. Then redraw; anything that
+        % puts the target outside the brain reverts.
+        v = tbl_probe.Data;
+        if isnan(ev.NewData), drawProbe(); return; end
+        if ev.Indices(2) >= 4
+            roll = min(max(v(4), spn_roll.Limits(1)), spn_roll.Limits(2));
+            ap = v(5);
+            e_dv = dorsalSurface(ap, v(6), probe_angle);   % entrance on the surface
+            if isempty(e_dv), drawProbe(); return; end
+            side = sign(v(6)) + (v(6) == 0);               % toward the midline = toward ML 0
+            ml = v(6) - side*sind(roll)*abs(v(7));
+            dv = e_dv - cosd(roll)*abs(v(7));
+            if ~insideBrain(ml, ap, dv, probe_angle), drawProbe(); return; end
+            spn_roll.Value = roll;
+            setProbeTarget(ap, ml, dv);
+            return
+        end
+        ap = v(1); ml = v(2);
+        surface = dorsalSurface(ap, ml, probe_angle);
+        dv = surface - abs(v(3));       % DV below the surface, either sign typed
+        if isempty(surface) || ~insideBrain(ml, ap, dv, probe_angle), drawProbe(); return; end   % outside the brain: revert
+        setProbeTarget(ap, ml, dv);
+    end
+
+    function [e_ml, e_dv, depth] = probeEntrance(ap, ml, dv, roll)
+        % Where a track to target ap, ml, dv (frame at probe_angle) at roll (deg,
+        % + toward the midline) enters the brain: the last point in the brain
+        % going up the track; NaN if the target is outside it
+        t = (0 : 0.01 : 15)';                              % along the track, upward
+        side = sign(ml) + (ml == 0);                       % toward the midline = toward ML 0
+        t_ml = ml + side*sind(roll)*t; t_dv = dv + cosd(roll)*t;
+        k = find(insideBrain(t_ml, ap*ones(size(t)), t_dv, probe_angle), 1, 'last');
+        if isempty(k), e_ml = NaN; e_dv = NaN; depth = NaN; return; end
+        e_ml = t_ml(k); e_dv = t_dv(k); depth = t(k);
+    end
+
+    function setProbeTarget(ap, ml, dv)
+        % Target at ap, ml, dv in the frame at the planning skull groove
+        % (probe_angle); slices move to where it is shown now (snapped)
+        probe_ml = ml;
+        [probe_ap, probe_dv] = rotateNoseDown(ap, dv, frame_angle - probe_angle);
+        [ap_d, dv_d] = rotateNoseDown(ap, dv, spn_angle.Value - probe_angle);
+        sliderMoved(sld_ap, ap_d, 1);
+        sliderMoved(sld_ml, ml, 2);
+        sliderMoved(sld_dv, dv_d, 3);
+        drawProbe();
+    end
+
+    function drawProbe()
+        % Track from the brain surface to the target at the roll angle (in the
+        % coronal plane, + toward the midline), planned at skull groove
+        % probe_angle: the table is in that frame. The track is fixed in the
+        % brain, so at another skull groove it is drawn tilted, in all four views.
+        set(h_probe, 'MarkerIndices', 1, 'XData', NaN, 'YData', NaN, 'ZData', NaN);   % marker: the target, once drawn
+        tbl_probe.Data = zeros(0, 7);
+        if ~chk_probe.Value || isempty(probe_ml), return; end
+        [ap, dv] = rotateNoseDown(probe_ap, probe_dv, probe_angle - frame_angle);
+        ml = probe_ml;
+        roll = spn_roll.Value;
+        surface = dorsalSurface(ap, ml, probe_angle);      % straight above the target
+        [e_ml, e_dv, depth] = probeEntrance(ap, ml, dv, roll);
+        if isempty(surface) || isnan(depth), return; end   % target outside this template's brain
+        tbl_probe.Data = [ap, ml, dv - surface, roll, ap, e_ml, depth];
+        P = [ap e_ml e_dv; ap ml dv];                      % entrance, target: AP, ML, DV
+        [P(:, 1), P(:, 3)] = rotateNoseDown(P(:, 1), P(:, 3), spn_angle.Value - probe_angle);   % to the display frame
+        axes_of = {[2 3], [1 3], [1 2]};                   % slice x, y (as in drawSlices)
+        for dim = 1:3
+            set(h_probe(dim), 'XData', P(:, axes_of{dim}(1)), 'YData', P(:, axes_of{dim}(2)), 'ZData', []);
+        end
+        set(h_probe(4), 'XData', P(:, 1), 'YData', P(:, 2), 'ZData', P(:, 3));
+        set(h_probe, 'MarkerIndices', 2);
+        arrayfun(@(h) uistack(h, 'top'), h_probe);
     end
 
     function setTemplateTransform()
         rot = templateRotation();
         c = cosd(rot); s = sind(rot);
         h_tf.Matrix = [c 0 s 0; 0 1 0 0; -s 0 c 0; 0 0 0 1];   % same rotation as rotateNoseDown
+    end
+
+    function lims = brainLimits3d()
+        % 3D axes limits [x; y; z] around all templates' brains (MC029's is the
+        % largest) at the display angle, out to the next whole mm
+        lo = inf(1, 3); hi = -inf(1, 3);
+        for kk = 1:numel(tmpl)
+            v = tmpl(kk).surf.Ibrain.vertices;
+            [v(:, 1), v(:, 3)] = rotateNoseDown(v(:, 1), v(:, 3), spn_angle.Value - tmpl(kk).native_angle);
+            lo = min(lo, min(v)); hi = max(hi, max(v));
+        end
+        lims = [floor(lo); ceil(hi)]';
     end
 
     function drawTemplate3d()
@@ -441,12 +707,49 @@ templateChanged();     % sets outline checkboxes for the template, then updateGr
     end
 
     function restoreAxes3d(az, el)
-        % Undo what plotBrainRegion3d changes: fixed limits (so planes and cells
-        % don't rescale them), the view, grid, and one headlight
-        set(ax_3d, 'XLim', Dd.xx([1 end]), 'YLim', Dd.yy([1 end]), 'ZLim', Dd.zz([1 end]));
+        % Undo what plotBrainRegion3d changes: limits around the template brains
+        % (fixed, so planes and cells don't rescale them; equal aspect), the view,
+        % grid, and one headlight
+        lims = brainLimits3d();
+        daspect(ax_3d, [1 1 1]);              % equal aspect; axis equal would override the limits
+        set(ax_3d, 'XLim', lims(1, :), 'YLim', lims(2, :), 'ZLim', lims(3, :));
         view(ax_3d, az, el);
+        axis(ax_3d, 'vis3d');                 % hold the aspect while rotating
+        % Zoom: seen from straight above, the box's AP x ML face fills the panel
+        % like the slice views, with room for the tick labels (label_margin);
+        % kept at every rotation (corners may be cut off)
+        ax_3d.CameraTargetMode = 'auto'; ax_3d.CameraPositionMode = 'auto';
+        span = max(diff(lims(1:2, :), 1, 2));
+        d = norm(ax_3d.CameraPosition - ax_3d.CameraTarget);
+        ax_3d.CameraViewAngle = 2*atand(span/2 * label_margin / d);
         grid(ax_3d, 'off')
+        applyGrid(ax_3d);                     % ticks for the new limits
+        slice_lims = lims;
+        scaleSlices();
         delete(findall(ax_3d, 'Type', 'light')); camlight(ax_3d, 'headlight')
+    end
+
+    function scaleSlices()
+        % Slice views: at least slice_lims (AP, ML, DV rows, from restoreAxes3d),
+        % widened so all three show the same mm per pixel (corresponding axes
+        % equally long on screen); again when the window is resized
+        if isempty(slice_lims), return; end
+        dims_of = {[2 3], [1 3], [1 2]};      % slice x, y (as in sliceSpec)
+        mid = mean(slice_lims, 2); range = diff(slice_lims, 1, 2);
+        for pass = 1:2                        % new limits change the tick labels, so the plot area: settle once
+            drawnow
+            px = zeros(3, 2);
+            for dim = 1:3
+                p = slice_ax(dim).InnerPosition; px(dim, :) = p(3:4);   % pixels for the plot
+            end
+            mm_per_px = max(range([dims_of{:}])' ./ reshape(px', 1, []));   % the tightest fit sets the scale
+            for dim = 1:3
+                d = dims_of{dim};
+                half = px(dim, :) * mm_per_px / 2;
+                set(slice_ax(dim), 'XLim', mid(d(1)) + [-1 1]*half(1), 'YLim', mid(d(2)) + [-1 1]*half(2));
+                applyGrid(slice_ax(dim));
+            end
+        end
     end
 
     function tableClicked(ev)
@@ -458,11 +761,23 @@ templateChanged();     % sets outline checkboxes for the template, then updateGr
         updateGroups();
     end
 
-    function styleRowNames()
+    function styleTable()
+        % Region names in their plot colors (color by region) or site columns
+        % tinted with theirs (color by injection site); names of fully checked
+        % rows shaded
         removeStyle(tbl);
         full_rows = find(all(tbl.Data{:, 2:end}, 2));
         if ~isempty(full_rows)
             addStyle(tbl, style_row_on, 'cell', [full_rows ones(size(full_rows))]);
+        end
+        if strcmp(sw_color.Value, 'Region')
+            for kk = 1:numel(regions)
+                addStyle(tbl, uistyle('FontColor', region_colors(kk, :), 'FontWeight', 'bold'), 'cell', [kk 1]);
+            end
+        else
+            for kk = 1:height(sites)
+                addStyle(tbl, uistyle('BackgroundColor', 1 - 0.4*(1 - site_colors(kk, :))), 'column', kk + 1);
+            end
         end
     end
 
@@ -494,8 +809,9 @@ templateChanged();     % sets outline checkboxes for the template, then updateGr
         % Collect the selected cells into color groups, then redraw everything
         fig_ptr = fig.Pointer; fig.Pointer = 'watch'; drawnow
         updateCellDisplay();
+        colorSites();
         sel = tbl.Data{:, 2:end}';   % sites x regions
-        styleRowNames();
+        styleTable();
         use_blobs = strcmp(sw_display.Value, 'Density');
         by_region = strcmp(sw_color.Value, 'Region');
         in_sel = false(size(cell_ap));
@@ -512,7 +828,7 @@ templateChanged();     % sets outline checkboxes for the template, then updateGr
         end
 
         if tabs.SelectedTab == tab2
-            % Tab 2: MC022's own cells only, in the MC022_75 frame
+            % Tab 2: MC022's own cells only, in the MC022 frame
             in_022 = in_sel & cell_bird == find(birds == "MC022");
             groups2 = makeGroups(in_022, keys, key_of_cell, by_region, use_blobs, ap_frame, ml_frame, dv_frame, sec_site_colors);
             drawSection();
@@ -580,11 +896,11 @@ templateChanged();     % sets outline checkboxes for the template, then updateGr
                 if use_blobs
                     h(kk) = newContour(slice_ax(dim), s.hx, s.hy, groups(kk).color, blob_level, 2);
                 else
-                    h(kk) = plot(slice_ax(dim), NaN, NaN, '.', 'Color', groups(kk).color, 'MarkerSize', 6);
+                    h(kk) = plot(slice_ax(dim), NaN, NaN, '.', 'Color', groups(kk).color, 'MarkerSize', 6, 'HitTest', 'off');
                 end
             end
             h_groups2d{dim} = h;
-            uistack(h_sites2d(dim, :), 'top');   % injection sites over the cells
+            uistack([h_sites2d(dim, :) h_probe(dim)], 'top');   % injection sites and probe over the cells
         end
     end
 
@@ -667,6 +983,10 @@ templateChanged();     % sets outline checkboxes for the template, then updateGr
         parents = [ctrl ctrl2];
         shared.Parent = parents(it);
         shared.Layout.Row = shared_row(it); shared.Layout.Column = [1 2];
+        % Scroll wheel steps sections in tab 2 only: a WindowScrollWheelFcn turns
+        % off the axes' built-in drag/zoom (tab 1's 3D rotation)
+        fig.WindowScrollWheelFcn = '';
+        if it == 2, fig.WindowScrollWheelFcn = @(~, ev) sectionScroll(ev); end
         updateGroups();
     end
 
@@ -715,12 +1035,11 @@ templateChanged();     % sets outline checkboxes for the template, then updateGr
             for kk = 1:3
                 h_outline(dim, kk) = newContour(ax, s.hx, s.hy, outline_colors(kk, :), 0.5, 1);
             end
-            h_cross(dim, 1) = xline(ax, s.cross(1), ':', 'Color', .3*[1 1 1]);
-            h_cross(dim, 2) = yline(ax, s.cross(2), ':', 'Color', .3*[1 1 1]);
-            h_sites2d(dim, :) = siteMarkers(ax, site_colors);
+            h_cross(dim, 1) = xline(ax, s.cross(1), ':', 'Color', .3*[1 1 1], 'HitTest', 'off');
+            h_cross(dim, 2) = yline(ax, s.cross(2), ':', 'Color', .3*[1 1 1], 'HitTest', 'off');
+            h_sites2d(dim, :) = siteMarkers(ax, height(sites));
             daspect(ax, [1 1 1]);
-            xlim(ax, s.hx([1 end])); ylim(ax, s.hy([1 end]));
-            if dim > 1, ax.XDir = 'reverse'; end      % anterior to the left, as in the 3D view
+            if dim == 3, ax.YDir = 'reverse'; end     % horizontal: seen from above, anterior right, so right side down
             xlabel(ax, s.xl); ylabel(ax, s.yl);
             applyGrid(ax);
         end
@@ -793,16 +1112,16 @@ templateChanged();     % sets outline checkboxes for the template, then updateGr
     end
 
     function setDisplayRange(lims)
-        % Tab 2 min/max slider: image color limits, marked on the histogram
+        % Tab 2 min/max slider (log scale, toLog): image color limits, marked
+        % on the histogram
         if diff(lims) <= 0, return; end
-        ax_sec.CLim = lims;
+        ax_sec.CLim = 10.^lims - 1;
         h_clim(1).Value = lims(1); h_clim(2).Value = lims(2);
     end
 
     function sectionScroll(ev)
         % Scroll wheel over tab 2's image steps sections (elsewhere, e.g. the
         % table, it scrolls as usual)
-        if tabs.SelectedTab ~= tab2, return; end
         p = getpixelposition(ax_sec, true);
         xy = fig.CurrentPoint;
         if all(xy >= p(1:2) & xy <= p(1:2) + p(3:4))
@@ -821,24 +1140,14 @@ templateChanged();     % sets outline checkboxes for the template, then updateGr
         end
         img = sec_cache{si, ich};
         h_sec_img.CData = img;
-        % Histogram and min/max slider over this section's intensities: from the
-        % 0.1th percentile (values far below the background are padding inside
-        % stitched images; at most 0) to the 99.9th (at least hist_max)
-        vals = double(img(~isnan(img)));   % NaN: off the images; double: slider limits must be
-        vals = vals(vals > -0.5);
-        h_lo = min(floor(10 * prctile(vals, 0.1)) / 10, 0);
-        h_hi = max(ceil(2 * prctile(vals, 99.9)) / 2, hist_max);
-        h_edges = linspace(h_lo, h_hi, 141);
-        n_hist = histcounts(min(vals, h_hi), h_edges);
+        % Histogram of this section's intensities on the fixed log scale (values
+        % at or below 0 in the first bin, above clim_top in the last); the
+        % display range stays as set
+        vals = double(img(~isnan(img)));   % NaN: off the images
+        vals = vals(vals > -0.5);          % far below the background: padding inside stitched images
+        h_edges = linspace(0, toLog(clim_top), 141);
+        n_hist = histcounts(min(toLog(vals), h_edges(end)), h_edges);
         set(h_hist, 'XData', h_edges, 'YData', max([n_hist n_hist(end)], 0.5));   % 0.5: empty bins on the log axis
-        ax_hist.XLim = [h_lo h_hi];
-        lims = min(max(sld_clim.Value, h_lo), h_hi);
-        if diff(lims) <= 0, lims = [0 1]; end
-        sld_clim.Limits = [min([h_lo sld_clim.Value]) max([h_hi sld_clim.Value])];   % widen first, so the current range stays valid
-        sld_clim.Value = lims;
-        sld_clim.Limits = [h_lo h_hi];
-        tick = ceil(2 * (h_hi - h_lo) / 8) / 2;   % about 8 ticks, a multiple of 0.5
-        sld_clim.MajorTicks = ceil(h_lo/tick)*tick : tick : h_hi;
         setDisplayRange(sld_clim.Value);
         ka = find(secs.trueOrder == so)';
         ks = ka(~isnan(secs.shift(ka)));
@@ -869,7 +1178,7 @@ templateChanged();     % sets outline checkboxes for the template, then updateGr
         end
         delete(h_sec_keys);
         h_sec_keys = groupLegend(ax_sec, groups2, h_sec_groups, labels, use_blobs);
-        near = sitesShown() & abs(site_ap - sec_ap(si)) <= site_window;   % section image: MC022_75 frame
+        near = sitesShown() & abs(site_ap - sec_ap(si)) <= site_window;   % section image: MC022 frame
         for kk = 1:height(sites)
             if near(kk), set(h_sec_sites(kk), 'XData', sites.ML(kk), 'YData', site_dv(kk));
             else, set(h_sec_sites(kk), 'XData', NaN, 'YData', NaN); end
@@ -896,21 +1205,22 @@ templateChanged();     % sets outline checkboxes for the template, then updateGr
 end
 
 
-function h = siteMarkers(ax, colors)
-% One hidden star per injection site (row of colors), black edged; data set when shown
-h = gobjects(size(colors, 1), 1);
-for k = 1:size(colors, 1)
+function h = siteMarkers(ax, n)
+% n hidden stars, one per injection site (colorSites sets their colors); data
+% set when shown
+h = gobjects(n, 1);
+for k = 1:n
     h(k) = line(ax, 'XData', NaN, 'YData', NaN, 'ZData', NaN, 'LineStyle', 'none', 'Marker', 'p', ...
-        'MarkerSize', 16, 'MarkerFaceColor', colors(k, :), 'MarkerEdgeColor', 'k', 'HitTest', 'off');
+        'MarkerSize', 12, 'MarkerFaceColor', 'k', 'MarkerEdgeColor', 'w', 'HitTest', 'off');
 end
 end
 
 
 function [ap, dv] = sitePositions(sites, tf, F_brain, frame_angle, zz)
 % Injection sites (Table 1: AP, ML from lambda; depth below the brain surface at
-% head_angle) in the MC022_75 frame: AP mapped like the cells (dryadToTemplate),
+% head_angle) in the MC022 frame: AP mapped like the cells (dryadToTemplate),
 % the surface found along the vertical of the head_angle frame, at +ML (the
-% injected side). F_brain: MC022_75's brain interpolant {yy, xx, zz}.
+% injected side). F_brain: MC022's brain interpolant {yy, xx, zz}.
 ap = nan(height(sites), 1); dv = ap;
 ap_frame = tf.ap_mid + (sites.AP - tf.ap_mid) * tf.ap_scale + tf.ap_shift;
 for k = 1:height(sites)
@@ -928,7 +1238,7 @@ end
 function h = newContour(ax, hx, hy, color, level, width)
 % Hidden placeholder contour at one level; setContour fills in the slice
 Z = zeros(numel(hy), numel(hx)); Z(1) = 1;   % non-constant, so contour doesn't warn
-[~, h] = contour(ax, hx, hy, Z, [level level], 'LineColor', color, 'LineWidth', width, 'Visible', 'off');
+[~, h] = contour(ax, hx, hy, Z, [level level], 'LineColor', color, 'LineWidth', width, 'Visible', 'off', 'HitTest', 'off');
 end
 
 
@@ -943,14 +1253,17 @@ end
 function C = loadViewerCache(data_dir)
 % Everything brainViewer derives from the data files: smoothed template volumes
 % (loadBrain3d defaults), their 3D surfaces (isosurface at 0.5 with normals, native
-% frame) and cell coordinates in the MC022_75 frame (Dryad through dryadToTemplate;
+% frame) and cell coordinates in the MC022 frame (Dryad through dryadToTemplate;
 % MC022 from its section images). Saved in tempdir and rebuilt when any source
 % file's date changes or cache_version does (bump it when the code that makes the
 % cache changes: here, loadDryadCells, dryadToTemplate, rotateNoseDown,
-% loadBrain3d).
-cache_version = 9;   % 9: Dryad cells placed by depth below their section top
+% loadBrain3d). Lambda: the origin moves P.lambda_ap anterior along MC029's AP
+% axis (MC029 is the ground truth; the same point, rotated, in MC022's frame),
+% so the templates and cells move back by it; C.tf.ap_shift and C.lambda (AP,
+% DV in MC022's frame) carry it to the injection sites, AP snapping and tab 2.
+cache_version = 13;   % 13: ML mirror undone (the 3D view's ML axis is reversed instead)
 cache_file = fullfile(tempdir, 'brainViewerCache.mat');
-src = fullfile(data_dir, {'MC022_75.mat', 'MC029_fixed.mat', fullfile('dryad_applegate2023', 'anatomy.mat'), 'MC029_orig.mat'});
+src = fullfile(data_dir, {'MC022.mat', 'MC029_fixed.mat', fullfile('dryad_applegate2023', 'anatomy.mat'), 'MC029_orig.mat'});
 src_time = max(cellfun(@(f) dir(f).datenum, src));
 if isfile(cache_file)
     stamp = load(cache_file, 'version', 'src_time');
@@ -962,12 +1275,14 @@ end
 
 fprintf('Building brainViewer cache (once per data change)...\n');
 P = load(src{1}, 'P').P;    % MC029's fitted angle and the vibratome scale (its ML: sagittal sections)
-spec = struct('file', src(1:2), 'name', {'MC022_75', 'MC029_fixed'}, ...
-    'label', {sprintf('MC022 (%g deg, brain only)', P.default_angle), sprintf('MC029 (%g deg)', P.ref_angle)}, ...
+spec = struct('file', src(1:2), 'name', {'MC022', 'MC029_fixed'}, ...
+    'label', {sprintf('MC022 (sectioned %g deg)', P.default_angle), sprintf('MC029 (%g deg)', P.ref_angle)}, ...
     'native_angle', {P.default_angle, P.ref_angle}, 'ml_scale', {1, P.section_step/0.1});
 for it = 1:numel(spec)
     D = loadBrain3d(spec(it).file);
     D.yy = D.yy * spec(it).ml_scale;
+    [dx, dz] = rotateNoseDown(P.lambda_ap, 0, spec(it).native_angle - P.ref_angle);   % lambda in this frame
+    D.xx = D.xx - dx; D.zz = D.zz - dz;
     [X, Y, Z] = meshgrid(D.xx, D.yy, D.zz);
     t = rmfield(spec(it), 'file');
     t.D = struct('xx', D.xx, 'yy', D.yy, 'zz', D.zz);
@@ -984,7 +1299,7 @@ cells = loadDryadCells(data_dir, P);
 C.tf = load(src{1}, 'tf').tf;
 [C.ap, C.ml, C.dv] = dryadToTemplate(cells.AP, cells.ML, cells.DV, C.tf);
 C.cells = cells(:, {'bird', 'ROI', 'Transverse', 'Long'});
-% MC022: the cells mapped from its own section images (exact in the MC022_75
+% MC022: the cells mapped from its own section images (exact in the MC022
 % frame) replace its Dryad cells. Only the regions labelled in its labelledCells
 % files are available.
 S = load(src{1}, 'sections', 'injections');
@@ -999,6 +1314,9 @@ img_cells = table(repmat({'MC022'}, height(img), 1), categorical(img.roi), ...
 dry022 = strcmp(C.cells.bird, 'MC022');
 C.cells = [C.cells(~dry022, :); img_cells];
 C.ap = [C.ap(~dry022); img_ap]; C.ml = [C.ml(~dry022); img.ml]; C.dv = [C.dv(~dry022); img.dv];
+[C.lambda(1), C.lambda(2)] = rotateNoseDown(P.lambda_ap, 0, P.default_angle - P.ref_angle);   % lambda in MC022's frame
+C.ap = C.ap - C.lambda(1); C.dv = C.dv - C.lambda(2);
+C.tf.ap_shift = C.tf.ap_shift - C.lambda(1);    % sites and AP snapping, via tf
 C.cells.bird = categorical(C.cells.bird);               % text columns as categorical:
 C.cells.Transverse = categorical(C.cells.Transverse);   % cellstr makes the file huge and slow
 C.version = cache_version;
