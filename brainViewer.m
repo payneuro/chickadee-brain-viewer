@@ -247,11 +247,15 @@ chk_minor = uicheckbox(chk_grid_lay, 'Text', '0.2 mm minor grid', 'Value', false
 % Probe track: checkbox and roll angle, then a one-row table of the planned
 % coordinates (display frame, mm from lambda; drawProbe)
 color_probe = [0.85 0 0.6];
-probe_lay = uigridlayout(ctrl, [2 3], 'Padding', 0, 'RowSpacing', 6, 'ColumnSpacing', 6, ...
-    'RowHeight', {26, 92}, 'ColumnWidth', {'1x', 'fit', 70});
+probe_lay = uigridlayout(ctrl, [2 4], 'Padding', 0, 'RowSpacing', 6, 'ColumnSpacing', 6, ...
+    'RowHeight', {26, 92}, 'ColumnWidth', {'1x', 'fit', 'fit', 70});
 probe_lay.Layout.Row = [8 9]; probe_lay.Layout.Column = [1 2];
-chk_probe = uicheckbox(probe_lay, 'Text', 'Probe track (click coronal)', 'Value', false, ...
+chk_probe = uicheckbox(probe_lay, 'Text', 'Probe track', 'Value', false, ...
     'FontColor', 0.8*color_probe, 'Tooltip', 'Click a point in the brain on the coronal slice to plan a track to it');
+dd_probe_mode = uidropdown(probe_lay, 'Items', {'Implant', 'Injection'}, 'Value', 'Implant', ...
+    'Tooltip', sprintf(['Implant: entrance ML is marked on the skull and the probe aimed at it.\n' ...
+    'Injection: the arm''s X axis rolls with the probe; Arm X is its reading from X = 0\n' ...
+    'with the tip on the skull at the midline at the target AP.']));
 uilabel(probe_lay, 'Text', 'Roll (deg):', 'FontWeight', 'bold');
 spn_roll = uispinner(probe_lay, 'Value', 0, 'Step', 5, 'Limits', [-60 60], ...
     'Tooltip', 'Angle from vertical in the coronal plane; + aims toward the midline');
@@ -260,8 +264,8 @@ tbl_probe = uitable(probe_lay, 'Data', zeros(0, 7), 'RowName', {}, ...
     'ColumnFormat', repmat({'bank'}, 1, 7), 'ColumnWidth', repmat({'1x'}, 1, 7), 'ColumnEditable', true(1, 7), ...
     'Tooltip', sprintf(['Target AP, ML (mm from lambda, at the skull groove when clicked); DV below the dorsal\n' ...
     'surface straight above it; roll (+ toward midline); entrance on the brain surface;\n' ...
-    'depth along the track from the entrance. Edit any value: AP, ML or DV moves the target; roll, entrance or depth moves the target along the edited track.']));
-tbl_probe.Layout.Row = 2; tbl_probe.Layout.Column = [1 3];
+    'depth along the track from the entrance. Injection: Arm X replaces entrance ML.\nEdit any value: AP, ML or DV moves the target; roll, entrance or depth moves the target along the edited track.']));
+tbl_probe.Layout.Row = 2; tbl_probe.Layout.Column = [1 4];
 probe_ml = []; probe_ap = []; probe_dv = [];   % target in the MC022 frame, like the cells (probeClick)
 probe_angle = [];   % skull groove the track was planned at; its table is in that frame
 % Controls used by both tabs, in one block that tabChanged moves to the tab showing
@@ -394,6 +398,7 @@ chk_planes.ValueChangedFcn = @(~, ~) set(h_planes, 'Visible', chk_planes.Value);
 sw_sites.ValueChangedFcn   = @(~, ~) updateGroups();
 chk_probe.ValueChangedFcn  = @(~, ~) drawProbe();
 spn_roll.ValueChangedFcn   = @(~, ~) drawProbe();
+dd_probe_mode.ValueChangedFcn = @(~, ~) drawProbe();
 tbl_probe.CellEditCallback = @(~, ev) probeEdited(ev);
 ax_cor.ButtonDownFcn       = @(~, ~) probeClick();   % on the axes: zoom/rotate modes clear fig.WindowButtonDownFcn
 sw_display.ValueChangedFcn = @(~, ~) updateGroups();
@@ -431,7 +436,7 @@ settings_file = fullfile(prefdir, 'brainViewerSettings.mat');
 remembered = struct('ap', sld_ap, 'ml', sld_ml, 'dv', sld_dv, 'template', dd_tmpl, ...
     'angle', spn_angle, 'brain', chk_brain, 'hippo', chk_hippo, 'dl', chk_dl, ...
     'planes', chk_planes, 'grid', chk_grid, 'minor', chk_minor, 'probe', chk_probe, ...
-    'roll', spn_roll, 'display', sw_display, 'fraction', sw_fraction, 'color', sw_color, ...
+    'probe_mode', dd_probe_mode, 'roll', spn_roll, 'display', sw_display, 'fraction', sw_fraction, 'color', sw_color, ...
     'sites', sw_sites, 'birds', lst_birds, 'sec_outline', chk_sec_outline, 'clim', sld_clim);
 saved = loadSettings();
 fig.DeleteFcn = @(~, ~) saveSettings();   % on closing, and on delete()
@@ -597,6 +602,25 @@ end
         % puts the target outside the brain reverts.
         v = tbl_probe.Data;
         if isnan(ev.NewData), drawProbe(); return; end
+        if ev.Indices(2) >= 4 && isInjection()
+            % Track at arm X (zeroed on the skull at the midline), then depth
+            roll = min(max(v(4), spn_roll.Limits(1)), spn_roll.Limits(2));
+            ap = v(5);
+            mid = midlineHeight(ap, probe_angle);
+            if isempty(mid), drawProbe(); return; end
+            side = sign(v(6)) + (v(6) == 0);
+            s = (-15 : 0.01 : 15)';                         % along the track, upward
+            t_ml = v(6)*cosd(roll) + side*sind(roll)*s;
+            t_dv = mid - side*sind(roll)*v(6) + cosd(roll)*s;
+            k = find(insideBrain(t_ml, ap*ones(size(s)), t_dv, probe_angle), 1, 'last');
+            if isempty(k), drawProbe(); return; end         % entrance: the track's top in the brain
+            ml = t_ml(k) - side*sind(roll)*abs(v(7));
+            dv = t_dv(k) - cosd(roll)*abs(v(7));
+            if ~insideBrain(ml, ap, dv, probe_angle), drawProbe(); return; end
+            spn_roll.Value = roll;
+            setProbeTarget(ap, ml, dv);
+            return
+        end
         if ev.Indices(2) >= 4
             roll = min(max(v(4), spn_roll.Limits(1)), spn_roll.Limits(2));
             ap = v(5);
@@ -629,6 +653,27 @@ end
         e_ml = t_ml(k); e_dv = t_dv(k); depth = t(k);
     end
 
+    function tf = isInjection()
+        tf = strcmp(dd_probe_mode.Value, 'Injection');
+    end
+
+    function mid = midlineHeight(ap, angle)
+        % Skull height at the midline at ap (frame at angle): the top of the
+        % brain surface within 0.5 mm of the midline, since the skull bridges
+        % the fissure; empty if no brain there
+        tops = arrayfun(@(m) max([dorsalSurface(ap, m, angle); -Inf]), -0.5 : 0.05 : 0.5);
+        mid = max(tops);
+        if mid == -Inf, mid = []; end
+    end
+
+    function x = armX(ap, e_ml, e_dv, roll)
+        % Injection arm's X reading at the entrance e_ml, e_dv (frame at
+        % probe_angle): X rolls with the probe, so it is the offset
+        % perpendicular to the track from X = 0 on the skull at the midline
+        side = sign(e_ml) + (e_ml == 0);
+        x = e_ml*cosd(roll) - side*sind(roll)*(e_dv - midlineHeight(ap, probe_angle));
+    end
+
     function setProbeTarget(ap, ml, dv)
         % Target at ap, ml, dv in the frame at the planning skull groove
         % (probe_angle); slices move to where it is shown now (snapped)
@@ -655,7 +700,13 @@ end
         surface = dorsalSurface(ap, ml, probe_angle);      % straight above the target
         [e_ml, e_dv, depth] = probeEntrance(ap, ml, dv, roll);
         if isempty(surface) || isnan(depth), return; end   % target outside this template's brain
-        tbl_probe.Data = [ap, ml, dv - surface, roll, ap, e_ml, depth];
+        col6 = e_ml;
+        tbl_probe.ColumnName{6} = sprintf('Entr.\nML');
+        if isInjection()
+            col6 = armX(ap, e_ml, e_dv, roll);
+            tbl_probe.ColumnName{6} = sprintf('Arm\nX');
+        end
+        tbl_probe.Data = [ap, ml, dv - surface, roll, ap, col6, depth];
         P = [ap e_ml e_dv; ap ml dv];                      % entrance, target: AP, ML, DV
         [P(:, 1), P(:, 3)] = rotateNoseDown(P(:, 1), P(:, 3), spn_angle.Value - probe_angle);   % to the display frame
         axes_of = {[2 3], [1 3], [1 2]};                   % slice x, y (as in drawSlices)
